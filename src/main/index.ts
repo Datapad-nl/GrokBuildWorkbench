@@ -5,6 +5,7 @@ import { startBrowserAgentServer } from './browserAgent'
 import { attachBrowser, navigateBrowser, prepareBrowser, sanitizeUrl } from './browser'
 import { augmentPath } from './codegraph'
 import { loadDotEnv } from './env'
+import { stopGitWatchers } from './git'
 import { registerIpc } from './ipc'
 import { ensureStore, syncGrokSessions } from './store'
 import { applyWindowChrome, getThemeState } from './themes'
@@ -81,6 +82,10 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+app.on('before-quit', () => {
+  stopGitWatchers()
 })
 
 app.on('window-all-closed', () => {

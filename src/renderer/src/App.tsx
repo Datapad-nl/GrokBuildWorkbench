@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ActivityApp } from './components/ActivityApp'
 import { BrowserPane } from './components/BrowserPane'
 import { ChatPane } from './components/ChatPane'
+import { GitPane } from './components/GitPane'
 import { NewProjectModal, SettingsModal } from './components/Modals'
 import { Sidebar } from './components/Sidebar'
 import { ThemeProvider } from './theme/ThemeProvider'
@@ -9,14 +10,19 @@ import { useWorkspace, WorkspaceProvider, type RightPaneId } from './workspace'
 
 const ACTIVITY_WIDTH_KEY = 'grokcode.activityWidth'
 const BROWSER_WIDTH_KEY = 'grokcode.browserWidth'
+const GIT_WIDTH_KEY = 'grokcode.gitWidth'
 const DEFAULT_ACTIVITY_WIDTH = 360
 const DEFAULT_BROWSER_WIDTH = 420
+const DEFAULT_GIT_WIDTH = 380
 const MIN_ACTIVITY_WIDTH = 260
 const MAX_ACTIVITY_WIDTH = 720
 const MIN_BROWSER_WIDTH = 320
 const MAX_BROWSER_WIDTH = 900
+const MIN_GIT_WIDTH = 300
+const MAX_GIT_WIDTH = 720
 const COLLAPSE_ACTIVITY_WIDTH = 200
 const COLLAPSE_BROWSER_WIDTH = 200
+const COLLAPSE_GIT_WIDTH = 200
 
 function readWidth(key: string, fallback: number, min: number, max: number): number {
   const raw = Number(localStorage.getItem(key))
@@ -25,14 +31,17 @@ function readWidth(key: string, fallback: number, min: number, max: number): num
 }
 
 function Shell(): React.JSX.Element {
-  const { showActivity, showBrowser, rightPaneOrder } = useWorkspace()
+  const { showActivity, showBrowser, showGit, rightPaneOrder } = useWorkspace()
   const [activityWidth, setActivityWidth] = useState(() =>
     readWidth(ACTIVITY_WIDTH_KEY, DEFAULT_ACTIVITY_WIDTH, MIN_ACTIVITY_WIDTH, MAX_ACTIVITY_WIDTH)
   )
   const [browserWidth, setBrowserWidth] = useState(() =>
     readWidth(BROWSER_WIDTH_KEY, DEFAULT_BROWSER_WIDTH, MIN_BROWSER_WIDTH, MAX_BROWSER_WIDTH)
   )
-  const [dragging, setDragging] = useState<'activity' | 'browser' | null>(null)
+  const [gitWidth, setGitWidth] = useState(() =>
+    readWidth(GIT_WIDTH_KEY, DEFAULT_GIT_WIDTH, MIN_GIT_WIDTH, MAX_GIT_WIDTH)
+  )
+  const [dragging, setDragging] = useState<'activity' | 'browser' | 'git' | null>(null)
 
   useEffect(() => {
     localStorage.setItem(ACTIVITY_WIDTH_KEY, String(activityWidth))
@@ -42,13 +51,17 @@ function Shell(): React.JSX.Element {
     localStorage.setItem(BROWSER_WIDTH_KEY, String(browserWidth))
   }, [browserWidth])
 
+  useEffect(() => {
+    localStorage.setItem(GIT_WIDTH_KEY, String(gitWidth))
+  }, [gitWidth])
+
   function startResize(
     event: React.PointerEvent<HTMLDivElement>,
-    kind: 'activity' | 'browser'
+    kind: 'activity' | 'browser' | 'git'
   ): void {
     event.preventDefault()
     const startX = event.clientX
-    const startWidth = kind === 'activity' ? activityWidth : browserWidth
+    const startWidth = kind === 'activity' ? activityWidth : kind === 'browser' ? browserWidth : gitWidth
     const target = event.currentTarget
     target.setPointerCapture(event.pointerId)
     setDragging(kind)
@@ -57,8 +70,10 @@ function Shell(): React.JSX.Element {
       const next = startWidth - (move.clientX - startX)
       if (kind === 'activity') {
         setActivityWidth(Math.min(MAX_ACTIVITY_WIDTH, Math.max(MIN_ACTIVITY_WIDTH, next)))
-      } else {
+      } else if (kind === 'browser') {
         setBrowserWidth(Math.min(MAX_BROWSER_WIDTH, Math.max(MIN_BROWSER_WIDTH, next)))
+      } else {
+        setGitWidth(Math.min(MAX_GIT_WIDTH, Math.max(MIN_GIT_WIDTH, next)))
       }
     }
 
@@ -73,6 +88,31 @@ function Shell(): React.JSX.Element {
   }
 
   const panes: Record<RightPaneId, React.JSX.Element> = {
+    git: (
+      <aside
+        key="git"
+        className={`relative overflow-hidden border-l border-line bg-sidebar ${
+          dragging === 'git' ? '' : 'transition-[width] duration-200 ease-out'
+        }`}
+        style={{
+          width: showGit ? gitWidth : 0,
+          minWidth: showGit ? COLLAPSE_GIT_WIDTH : 0,
+          flexShrink: showGit ? 1 : 0,
+          borderLeftWidth: showGit ? 1 : 0
+        }}
+        aria-hidden={!showGit}
+      >
+        <div className="flex h-full flex-col" style={{ width: gitWidth }}>
+          <GitPane />
+        </div>
+        {showGit && (
+          <div
+            className="no-drag absolute top-0 left-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-accent/30 active:bg-accent/40"
+            onPointerDown={(event) => startResize(event, 'git')}
+          />
+        )}
+      </aside>
+    ),
     browser: (
       <aside
         key="browser"

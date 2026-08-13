@@ -20,7 +20,7 @@ import {
   promptSession,
   type SessionUpdate
 } from './acp'
-import { finishTurn, startTurn } from './activity'
+import { emitNotice, finishTurn, startTurn } from './activity'
 import { finishCheckpoint, snapshotTouched, startCheckpoint, rewindTo } from './checkpoints'
 import { id, now, titleFromPrompt } from './ids'
 import {
@@ -30,7 +30,8 @@ import {
   setSessionMode
 } from './permissions'
 import { grokBuildSignedIn } from './sessions'
-import { getApiKey, getChat, saveChat } from './store'
+import { chatWorkingDir, isolateChatIfNeeded } from './git'
+import { getApiKey, getChat, listChats, saveChat } from './store'
 
 const PLAN_MODE_INSTRUCTION = [
   'You are in plan mode.',
@@ -158,7 +159,7 @@ export async function setChatMode(chatId: string, mode: PermissionMode): Promise
 }
 
 async function resolveSession(chat: Chat, project: Project | undefined): Promise<{ chat: Chat; sessionId: string }> {
-  const cwd = project?.path || homedir()
+  const cwd = chatWorkingDir(chat, project?.path) || homedir()
   if (chat.grokSessionId) {
     try {
       await loadSession(chat.grokSessionId, cwd)
@@ -218,9 +219,29 @@ export async function streamAssistant(
   }
 
   await ensureAgent()
-  const resolved = await resolveSession(chat, project)
-  const lastUser = [...resolved.chat.messages].reverse().find((message) => message.role === 'user')
+  const lastUser = [...chat.messages].reverse().find((message) => message.role === 'user')
   if (!lastUser) throw new Error('Message is empty')
+  if (!chat.worktreePath && project?.path) {
+    const siblings = (await listChats()).filter(
+      (item) => item.projectId === chat.projectId && item.id !== chat.id
+    )
+    const isolated = await isolateChatIfNeeded(chat, project.path, lastUser.content, {
+      streaming: siblings.some((item) => isStreaming(item.id)),
+      worktrees: siblings.filter((item) => item.worktreePath).length,
+      chats: siblings.length
+    })
+    if (isolated.reason) {
+      chat = await saveChat(isolated.chat)
+      emitLive({ type: 'chat', chatId: chat.id, chat })
+      emitNotice({
+        chatId: chat.id,
+        chatTitle: chat.title,
+        title: 'Isolated worktree',
+        detail: `${isolated.reason}\n${chat.worktreeBranch ?? ''}`
+      })
+    }
+  }
+  const resolved = await resolveSession(chat, project)
 
   const gen = nextGen++
   inflight.set(chat.id, { sessionId: resolved.sessionId, gen })
@@ -244,7 +265,7 @@ export async function streamAssistant(
       chat: resolved.chat,
       messageId: lastUser.id,
       label: lastUser.content || 'Screenshot',
-      cwd: project?.path ?? null
+      cwd: chatWorkingDir(resolved.chat, project?.path)
     })
     const withPoint = await getChat(chat.id)
     emitLive({ type: 'chat', chatId: chat.id, chat: withPoint })

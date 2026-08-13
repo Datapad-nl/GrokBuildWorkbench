@@ -14,6 +14,7 @@ import type {
   ChatEvent,
   ChatSummary,
   FileMention,
+  GitSummary,
   IndexEvent,
   OrientationCard,
   PermissionMode,
@@ -47,11 +48,14 @@ type WorkspaceContextValue = {
   showSettings: boolean
   showActivity: boolean
   showBrowser: boolean
+  showGit: boolean
+  gitSummaries: Record<string, GitSummary>
   rightPaneOrder: RightPaneId[]
   setShowNewProject: (open: boolean) => void
   setShowSettings: (open: boolean) => void
   setShowActivity: (open: boolean) => void
   setShowBrowser: (open: boolean) => void
+  setShowGit: (open: boolean) => void
   swapRightPanes: () => void
   selectProject: (projectId: string) => void
   openChat: (chatId: string) => Promise<void>
@@ -85,19 +89,26 @@ const WorkspaceContext = createContext<WorkspaceContextValue | null>(null)
 
 const emptyStream: StreamState = { status: 'idle', draft: '', error: null }
 
-export type RightPaneId = 'browser' | 'activity'
+export type RightPaneId = 'git' | 'browser' | 'activity'
 
 const SESSION_KEY = 'grokcode.session'
 const PANE_ORDER_KEY = 'grokcode.rightPaneOrder'
-const DEFAULT_PANE_ORDER: RightPaneId[] = ['browser', 'activity']
+const DEFAULT_PANE_ORDER: RightPaneId[] = ['git', 'browser', 'activity']
+
+function isPaneId(value: string): value is RightPaneId {
+  return value === 'git' || value === 'browser' || value === 'activity'
+}
 
 function readPaneOrder(): RightPaneId[] {
   try {
-    if (localStorage.getItem(PANE_ORDER_KEY) === 'activity,browser') return ['activity', 'browser']
+    const raw = localStorage.getItem(PANE_ORDER_KEY)
+    if (!raw) return DEFAULT_PANE_ORDER
+    const parsed = raw.split(',').filter(isPaneId)
+    const missing = DEFAULT_PANE_ORDER.filter((id) => !parsed.includes(id))
+    return parsed.length > 0 ? [...parsed, ...missing] : DEFAULT_PANE_ORDER
   } catch {
-    /* ignore */
+    return DEFAULT_PANE_ORDER
   }
-  return DEFAULT_PANE_ORDER
 }
 
 type UiSession = {
@@ -163,10 +174,18 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
     setShowBrowserState(open)
     localStorage.setItem('grokcode.showBrowser', open ? '1' : '0')
   }, [])
+  const [showGit, setShowGitState] = useState(() => {
+    return localStorage.getItem('grokcode.showGit') === '1'
+  })
+  const setShowGit = useCallback((open: boolean) => {
+    setShowGitState(open)
+    localStorage.setItem('grokcode.showGit', open ? '1' : '0')
+  }, [])
+  const [gitSummaries, setGitSummaries] = useState<Record<string, GitSummary>>({})
   const [rightPaneOrder, setRightPaneOrder] = useState<RightPaneId[]>(readPaneOrder)
   const swapRightPanes = useCallback(() => {
     setRightPaneOrder((current) => {
-      const next: RightPaneId[] = [current[1], current[0]]
+      const next = [...current.slice(1), current[0]]
       localStorage.setItem(PANE_ORDER_KEY, next.join(','))
       return next
     })
@@ -182,6 +201,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
     () => window.grokcode.onBrowserRequestShow?.(() => setShowBrowser(true)),
     [setShowBrowser]
   )
+
+  useEffect(() => {
+    void window.grokcode.getGitSummaries().then(setGitSummaries)
+    return window.grokcode.onGitSummaries(setGitSummaries)
+  }, [])
 
   useEffect(() => {
     void (async () => {
@@ -283,6 +307,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
       }
       if (event.type === 'chat') {
         setChatsById((current) => ({ ...current, [event.chatId]: event.chat }))
+        setChats((current) =>
+          current.map((item) =>
+            item.id === event.chatId
+              ? {
+                  ...item,
+                  worktreePath: event.chat.worktreePath ?? null,
+                  worktreeBranch: event.chat.worktreeBranch ?? null
+                }
+              : item
+          )
+        )
         setStreams((current) => {
           if (!current[event.chatId] || current[event.chatId].status !== 'streaming') {
             return { ...current, [event.chatId]: emptyStream }
@@ -498,11 +533,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
       showSettings,
       showActivity,
       showBrowser,
+      showGit,
+      gitSummaries,
       rightPaneOrder,
       setShowNewProject,
       setShowSettings,
       setShowActivity,
       setShowBrowser,
+      setShowGit,
       swapRightPanes,
       selectProject,
       openChat,
@@ -541,9 +579,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
       showSettings,
       showActivity,
       showBrowser,
+      showGit,
+      gitSummaries,
       rightPaneOrder,
       setShowActivity,
       setShowBrowser,
+      setShowGit,
       swapRightPanes,
       selectProject,
       openChat,

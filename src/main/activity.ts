@@ -101,6 +101,23 @@ function boundFields(sessionId: string | null): Pick<ActivityEvent, 'chatId' | '
   return { chatId: bound?.id ?? null, chatTitle: bound?.title ?? null }
 }
 
+export function emitNotice(input: {
+  chatId: string
+  chatTitle: string
+  title: string
+  detail: string
+}): void {
+  emitActivity({
+    kind: 'write',
+    chatId: input.chatId,
+    chatTitle: input.chatTitle,
+    sessionId: null,
+    title: input.title,
+    detail: input.detail,
+    status: 'done'
+  })
+}
+
 export function startTurn(input: {
   chatId: string
   chatTitle: string

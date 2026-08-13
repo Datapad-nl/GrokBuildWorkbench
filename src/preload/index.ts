@@ -9,6 +9,10 @@ import type {
   CreateProjectInput,
   FileHit,
   FileMention,
+  GitActionResult,
+  GitDiffResult,
+  GitSnapshot,
+  GitSummary,
   IndexEvent,
   PermissionMode,
   UpdateProjectInput
@@ -32,8 +36,8 @@ const api = {
     attachments?: Array<{ id: string; mimeType: string; data: string }>,
     mentions?: FileMention[]
   ) => ipcRenderer.invoke('chat:send', { chatId, content, attachments, mentions }),
-  searchFiles: (projectId: string, query: string) =>
-    ipcRenderer.invoke('project:searchFiles', { projectId, query }) as Promise<FileHit[]>,
+  searchFiles: (projectId: string, query: string, chatId?: string) =>
+    ipcRenderer.invoke('project:searchFiles', { projectId, query, chatId }) as Promise<FileHit[]>,
   stopChat: (chatId: string) => ipcRenderer.invoke('chat:stop', chatId),
   setChatMode: (chatId: string, mode: PermissionMode) =>
     ipcRenderer.invoke('chat:setMode', { chatId, mode }),
@@ -102,6 +106,39 @@ const api = {
     ipcRenderer.on('browser:requestShow', wrapped)
     return () => {
       ipcRenderer.removeListener('browser:requestShow', wrapped)
+    }
+  },
+  getGitSnapshot: (projectId: string, chatId?: string | null) =>
+    ipcRenderer.invoke('git:snapshot', { projectId, chatId }) as Promise<GitSnapshot>,
+  getGitSummaries: () => ipcRenderer.invoke('git:summaries') as Promise<Record<string, GitSummary>>,
+  getGitDiff: (projectId: string, path: string, staged: boolean, chatId?: string | null) =>
+    ipcRenderer.invoke('git:diff', { projectId, path, staged, chatId }) as Promise<GitDiffResult>,
+  stageGitPath: (projectId: string, path: string, chatId?: string | null) =>
+    ipcRenderer.invoke('git:stage', { projectId, path, chatId }) as Promise<GitActionResult>,
+  unstageGitPath: (projectId: string, path: string, chatId?: string | null) =>
+    ipcRenderer.invoke('git:unstage', { projectId, path, chatId }) as Promise<GitActionResult>,
+  discardGitPath: (projectId: string, path: string, chatId?: string | null) =>
+    ipcRenderer.invoke('git:discard', { projectId, path, chatId }) as Promise<GitActionResult>,
+  commitGit: (projectId: string, message: string, chatId?: string | null) =>
+    ipcRenderer.invoke('git:commit', { projectId, message, chatId }) as Promise<GitActionResult>,
+  checkoutGit: (projectId: string, ref: string, chatId?: string | null) =>
+    ipcRenderer.invoke('git:checkout', { projectId, ref, chatId }) as Promise<GitActionResult>,
+  createGitBranch: (projectId: string, name: string, chatId?: string | null) =>
+    ipcRenderer.invoke('git:createBranch', { projectId, name, chatId }) as Promise<GitActionResult>,
+  setGitActiveProject: (projectId: string | null, chatId?: string | null) =>
+    ipcRenderer.invoke('git:setActive', { projectId, chatId }) as Promise<boolean>,
+  onGitSnapshot: (listener: (snapshot: GitSnapshot) => void) => {
+    const wrapped = (_event: unknown, payload: GitSnapshot): void => listener(payload)
+    ipcRenderer.on('git:snapshot', wrapped)
+    return () => {
+      ipcRenderer.removeListener('git:snapshot', wrapped)
+    }
+  },
+  onGitSummaries: (listener: (summaries: Record<string, GitSummary>) => void) => {
+    const wrapped = (_event: unknown, payload: Record<string, GitSummary>): void => listener(payload)
+    ipcRenderer.on('git:summaries', wrapped)
+    return () => {
+      ipcRenderer.removeListener('git:summaries', wrapped)
     }
   },
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url) as Promise<boolean>,

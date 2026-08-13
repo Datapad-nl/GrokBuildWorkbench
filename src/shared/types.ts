@@ -75,6 +75,8 @@ export type Chat = {
   mode?: PermissionMode
   plan?: ChatPlan | null
   checkpoints?: Checkpoint[]
+  worktreePath?: string | null
+  worktreeBranch?: string | null
 }
 
 export type ChatSummary = Omit<Chat, 'messages'> & {
@@ -219,3 +221,70 @@ export type BrowserState = {
 }
 
 export const DEFAULT_MODEL = 'grok-4.6'
+
+export type GitChangeKind =
+  | 'modified'
+  | 'added'
+  | 'deleted'
+  | 'renamed'
+  | 'copied'
+  | 'untracked'
+  | 'conflict'
+
+export type GitFile = {
+  path: string
+  oldPath: string | null
+  staged: GitChangeKind | null
+  unstaged: GitChangeKind | null
+}
+
+export type GitGraphNode = {
+  sha: string
+  shortSha: string
+  subject: string
+  author: string
+  date: string
+  refs: string[]
+  parents: string[]
+  lane: number
+  openLanes: number[]
+  isHead: boolean
+}
+
+export type GitReason = 'ok' | 'no-folder' | 'not-a-repo' | 'error'
+
+export type GitSnapshot = {
+  projectId: string | null
+  chatId: string | null
+  path: string | null
+  available: boolean
+  reason: GitReason
+  error: string | null
+  branch: string | null
+  detached: boolean
+  ahead: number
+  behind: number
+  dirtyCount: number
+  files: GitFile[]
+  graph: GitGraphNode[]
+}
+
+export type GitSummary = {
+  projectId: string
+  available: boolean
+  branch: string | null
+  dirtyCount: number
+}
+
+export type GitDiffResult = {
+  path: string
+  oldText: string
+  newText: string
+  staged: boolean
+}
+
+export type GitActionResult = {
+  ok: boolean
+  error: string | null
+  snapshot: GitSnapshot
+}

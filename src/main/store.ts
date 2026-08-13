@@ -282,8 +282,9 @@ export async function getChat(chatId: string): Promise<Chat> {
   if (!chat) throw new Error('Chat not found')
   if (chat.messages.length === 0 && chat.grokSessionId) {
     const project = (await loadProjects()).find((item) => item.id === chat.projectId)
-    if (project?.path) {
-      chat.messages = readGrokHistory(chat.grokSessionId, project.path)
+    const cwd = chat.worktreePath || project?.path
+    if (cwd) {
+      chat.messages = readGrokHistory(chat.grokSessionId, cwd)
     }
   }
   return {
@@ -307,7 +308,9 @@ export async function listChats(): Promise<ChatSummary[]> {
       grokSessionId: chat.grokSessionId ?? null,
       createdAt: chat.createdAt,
       updatedAt: chat.updatedAt,
-      messageCount: chat.messages.length
+      messageCount: chat.messages.length,
+      worktreePath: chat.worktreePath ?? null,
+      worktreeBranch: chat.worktreeBranch ?? null
     })
   }
   return chats.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))

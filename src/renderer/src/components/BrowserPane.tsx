@@ -14,8 +14,15 @@ const empty: BrowserState = {
 }
 
 export function BrowserPane(): React.JSX.Element {
-  const { showBrowser, showActivity, showNewProject, showSettings, setShowBrowser, swapRightPanes } =
-    useWorkspace()
+  const {
+    showBrowser,
+    showActivity,
+    showGit,
+    showNewProject,
+    showSettings,
+    setShowBrowser,
+    swapRightPanes
+  } = useWorkspace()
   const hostRef = useRef<HTMLDivElement>(null)
   const [state, setState] = useState<BrowserState>(empty)
   const [draft, setDraft] = useState('')
@@ -88,8 +95,8 @@ export function BrowserPane(): React.JSX.Element {
     <section className="flex h-full min-w-0 flex-1 flex-col bg-canvas">
       <div className="drag flex h-titlebar shrink-0 items-center gap-1 border-b border-line bg-surface px-2">
         <div className="no-drag flex min-w-0 flex-1 items-center gap-1">
-          {showActivity && (
-            <ReorderGrip onSwap={swapRightPanes} label="Drag to swap with thought process" />
+          {(showActivity || showGit) && (
+            <ReorderGrip onSwap={swapRightPanes} label="Reorder panes" />
           )}
           <IconButton
             label="Back"

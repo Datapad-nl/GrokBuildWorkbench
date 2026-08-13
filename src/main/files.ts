@@ -1,7 +1,7 @@
 import { readdir, stat } from 'fs/promises'
 import { basename, join, relative, sep } from 'path'
 import type { FileHit } from '../shared/types'
-import { listProjects } from './store'
+import { getChat, listProjects } from './store'
 
 const IGNORE = new Set([
   '.git',
@@ -92,17 +92,30 @@ function score(item: FileHit, query: string): number {
   return 15
 }
 
-export async function searchProjectFiles(projectId: string, query: string): Promise<FileHit[]> {
+export async function searchProjectFiles(
+  projectId: string,
+  query: string,
+  chatId?: string
+): Promise<FileHit[]> {
   const projects = await listProjects()
   const project = projects.find((item) => item.id === projectId)
   if (!project?.path) return []
+  let root = project.path
+  if (chatId) {
+    try {
+      const chat = await getChat(chatId)
+      root = chat.worktreePath || project.path
+    } catch {
+      root = project.path
+    }
+  }
   try {
-    const info = await stat(project.path)
+    const info = await stat(root)
     if (!info.isDirectory()) return []
   } catch {
     return []
   }
-  const files = await filesFor(project.path)
+  const files = await filesFor(root)
   const trimmed = query.trim().toLowerCase()
   const ranked = files
     .map((item) => ({ item, points: score(item, trimmed) }))

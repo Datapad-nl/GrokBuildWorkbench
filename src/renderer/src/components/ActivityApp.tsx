@@ -126,7 +126,7 @@ function EventRow({ event }: { event: ActivityEvent }): React.JSX.Element {
 }
 
 export function ActivityApp(): React.JSX.Element {
-  const { showBrowser, setShowActivity, swapRightPanes } = useWorkspace()
+  const { showBrowser, showGit, setShowActivity, swapRightPanes } = useWorkspace()
   const [events, setEvents] = useState<ActivityEvent[]>([])
   const [filter, setFilter] = useState<string | 'edits' | null>('edits')
   const [pinned, setPinned] = useState(false)
@@ -192,8 +192,8 @@ export function ActivityApp(): React.JSX.Element {
     <div className="flex h-full flex-col bg-sidebar text-ink">
       <header className="drag shrink-0">
         <div className="flex h-titlebar items-center justify-between gap-2 border-b border-line px-3">
-          {showBrowser && (
-            <ReorderGrip onSwap={swapRightPanes} label="Drag to swap with browser" />
+          {(showBrowser || showGit) && (
+            <ReorderGrip onSwap={swapRightPanes} label="Reorder panes" />
           )}
           <div className="no-drag min-w-0 flex-1">
             <h1 className="text-[13px] font-semibold tracking-tight">Thought process</h1>

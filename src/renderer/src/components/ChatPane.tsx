@@ -252,6 +252,7 @@ export function ChatPane(): React.JSX.Element {
               .filter((message) => message.role === 'user' && message.content.trim())
               .map((message) => message.content)}
             projectId={activeChat.projectId}
+            chatId={activeChat.id}
             hasFolder={Boolean(activeProject?.path)}
             onSend={(text, attachments, mentions) =>
               void sendMessage(activeChat.id, text, attachments, mentions)
@@ -778,6 +779,7 @@ function Composer({
   mode,
   permission,
   projectId,
+  chatId,
   hasFolder,
   history,
   onSend,
@@ -792,6 +794,7 @@ function Composer({
   mode: PermissionMode
   permission: PermissionRequest | null
   projectId: string
+  chatId: string
   hasFolder: boolean
   history: string[]
   onSend: (text: string, attachments: Attachment[], mentions: FileMention[]) => void
@@ -834,7 +837,7 @@ function Composer({
     let cancelled = false
     const timer = window.setTimeout(() => {
       void (async () => {
-        const found = await window.grokcode.searchFiles(projectId, mention.query)
+        const found = await window.grokcode.searchFiles(projectId, mention.query, chatId)
         if (cancelled) return
         const recents = loadRecents(projectId)
         const q = mention.query.toLowerCase()
@@ -855,7 +858,7 @@ function Composer({
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [hasFolder, mention, projectId])
+  }, [chatId, hasFolder, mention, projectId])
 
   function syncTrigger(text: string, caret: number): void {
     const nextCommand = commandAt(text, caret)

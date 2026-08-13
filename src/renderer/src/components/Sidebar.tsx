@@ -146,7 +146,7 @@ function ActivityToggle(): React.JSX.Element {
 
   return (
     <div className="flex items-center">
-      <ReorderGrip onSwap={swapRightPanes} label="Drag to swap with browser" />
+      <ReorderGrip onSwap={swapRightPanes} label="Reorder panes" />
       <button
         data-testid="open-activity"
         className={`flex h-8 min-w-0 flex-1 items-center justify-between rounded-md px-2 text-left text-[11px] hover:bg-raised hover:text-ink ${
@@ -166,7 +166,7 @@ function BrowserToggle(): React.JSX.Element {
 
   return (
     <div className="flex items-center">
-      <ReorderGrip onSwap={swapRightPanes} label="Drag to swap with thought process" />
+      <ReorderGrip onSwap={swapRightPanes} label="Reorder panes" />
       <button
         data-testid="open-browser"
         className={`flex h-8 min-w-0 flex-1 items-center justify-between rounded-md px-2 text-left text-[11px] hover:bg-raised hover:text-ink ${
@@ -181,9 +181,30 @@ function BrowserToggle(): React.JSX.Element {
   )
 }
 
+function GitToggle(): React.JSX.Element {
+  const { showGit, setShowGit, swapRightPanes } = useWorkspace()
+
+  return (
+    <div className="flex items-center">
+      <ReorderGrip onSwap={swapRightPanes} label="Reorder panes" />
+      <button
+        data-testid="open-git"
+        className={`flex h-8 min-w-0 flex-1 items-center justify-between rounded-md px-2 text-left text-[11px] hover:bg-raised hover:text-ink ${
+          showGit ? 'text-ink' : 'text-muted'
+        }`}
+        onClick={() => setShowGit(!showGit)}
+      >
+        <span>Git</span>
+        <span>{showGit ? 'Hide' : 'Show'}</span>
+      </button>
+    </div>
+  )
+}
+
 function PaneToggles(): React.JSX.Element {
   const { rightPaneOrder } = useWorkspace()
   const panes: Record<RightPaneId, React.JSX.Element> = {
+    git: <GitToggle key="git" />,
     browser: <BrowserToggle key="browser" />,
     activity: <ActivityToggle key="activity" />
   }
@@ -204,7 +225,9 @@ export function Sidebar(): React.JSX.Element {
     deleteChat,
     deleteProject,
     setShowNewProject,
-    setShowSettings
+    setShowSettings,
+    gitSummaries,
+    setShowGit
   } = useWorkspace()
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(readCollapsed)
   const [width, setWidth] = useState(readWidth)
@@ -334,6 +357,22 @@ export function Sidebar(): React.JSX.Element {
                   >
                     <span className="truncate text-[12px] font-medium text-ink">{project.name}</span>
                   </button>
+                  {gitSummaries[project.id]?.available && (
+                    <button
+                      className="max-w-[88px] shrink-0 truncate px-1 font-mono text-[9px] text-muted hover:text-ink"
+                      title="Open git pane"
+                      onClick={() => {
+                        selectProject(project.id)
+                        expandProject(project.id)
+                        setShowGit(true)
+                      }}
+                    >
+                      {gitSummaries[project.id].branch ?? 'HEAD'}
+                      {gitSummaries[project.id].dirtyCount > 0
+                        ? ` · ${gitSummaries[project.id].dirtyCount}`
+                        : ''}
+                    </button>
+                  )}
                   <button
                     className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[13px] text-muted hover:bg-canvas hover:text-ink"
                     title="New chat"
@@ -394,6 +433,14 @@ export function Sidebar(): React.JSX.Element {
                                 style={{ background: projectColor, opacity: streaming ? 1 : 0.7 }}
                               />
                               <span className="truncate text-[12px] leading-5">{chat.title}</span>
+                              {chat.worktreeBranch && (
+                                <span
+                                  className="shrink-0 font-mono text-[9px] text-muted"
+                                  title={chat.worktreePath || chat.worktreeBranch}
+                                >
+                                  {chat.worktreeBranch.replace(/^grokcode\//, '')}
+                                </span>
+                              )}
                             </button>
                             <button
                               className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[12px] text-muted opacity-0 group-hover:opacity-100 hover:text-danger"

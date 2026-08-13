@@ -52,12 +52,28 @@ import {
   deleteChat,
   deleteProject,
   getChat,
+  listChats,
   listProjects,
   renameChat,
   snapshot,
   updateProject,
   updateSettings
 } from './store'
+import {
+  checkoutGit,
+  chatWorkingDir,
+  commitGit,
+  createGitBranch,
+  discardGitPath,
+  getGitDiff,
+  getGitSnapshot,
+  getGitSummaries,
+  removeChatWorktree,
+  setGitActiveProject,
+  stageGitPath,
+  syncGitWatchers,
+  unstageGitPath
+} from './git'
 import {
   activateTheme,
   deleteUserTheme,
@@ -127,15 +143,27 @@ export function registerIpc(): void {
     const name = input.name?.trim() || (input.path ? basename(input.path) : 'Untitled project')
     const project = await createProject(name, input.path ?? null, input.color)
     const chat = await createChat(project.id)
+    void syncGitWatchers()
     return { project, chat }
   })
 
   ipcMain.handle('project:update', async (_event, input: UpdateProjectInput) => {
-    return updateProject(input)
+    const project = await updateProject(input)
+    void syncGitWatchers()
+    return project
   })
 
   ipcMain.handle('project:delete', async (_event, projectId: string) => {
+    const projects = await listProjects()
+    const project = projects.find((item) => item.id === projectId)
+    const chats = await listChats()
+    for (const chat of chats.filter((item) => item.projectId === projectId)) {
+      if (chat.worktreePath && project?.path) {
+        await removeChatWorktree(project.path, chat.worktreePath)
+      }
+    }
     await deleteProject(projectId)
+    void syncGitWatchers()
     return snapshot()
   })
 
@@ -155,9 +183,12 @@ export function registerIpc(): void {
     return buildOrientation(project)
   })
 
-  ipcMain.handle('project:searchFiles', async (_event, input: { projectId: string; query: string }) => {
-    return searchProjectFiles(input.projectId, String(input.query ?? ''))
-  })
+  ipcMain.handle(
+    'project:searchFiles',
+    async (_event, input: { projectId: string; query: string; chatId?: string }) => {
+      return searchProjectFiles(input.projectId, String(input.query ?? ''), input.chatId)
+    }
+  )
 
   ipcMain.handle('project:pickFolder', async () => {
     const window = BrowserWindow.getFocusedWindow()
@@ -185,7 +216,11 @@ export function registerIpc(): void {
     const chat = await getChat(chatId).catch(() => null)
     const projects = await listProjects()
     const project = chat ? projects.find((item) => item.id === chat.projectId) : null
-    await deleteAllCheckpoints(chatId, project?.path ?? null)
+    const cwd = chat && project ? chatWorkingDir(chat, project.path) : project?.path ?? null
+    await deleteAllCheckpoints(chatId, cwd)
+    if (chat?.worktreePath && project?.path) {
+      await removeChatWorktree(project.path, chat.worktreePath)
+    }
     await deleteChat(chatId)
     return snapshot()
   })
@@ -255,7 +290,7 @@ export function registerIpc(): void {
     const chat = await getChat(input.chatId)
     const projects = await listProjects()
     const project = projects.find((item) => item.id === chat.projectId)
-    return rewindChat(input.chatId, input.checkpointId, project?.path ?? null)
+    return rewindChat(input.chatId, input.checkpointId, chatWorkingDir(chat, project?.path))
   })
 
   ipcMain.handle('settings:get', async () => {
@@ -308,6 +343,69 @@ export function registerIpc(): void {
   ipcMain.handle('browser:reload', () => reloadBrowser())
   ipcMain.handle('browser:stop', () => stopBrowser())
   ipcMain.handle('browser:clearData', () => clearBrowserData())
+
+  ipcMain.handle('git:snapshot', async (_event, input: { projectId: string; chatId?: string | null }) => {
+    return getGitSnapshot(String(input?.projectId ?? ''), input?.chatId)
+  })
+  ipcMain.handle('git:summaries', async () => {
+    return getGitSummaries()
+  })
+  ipcMain.handle(
+    'git:diff',
+    async (_event, input: { projectId: string; path: string; staged: boolean; chatId?: string | null }) => {
+      return getGitDiff(
+        String(input.projectId ?? ''),
+        String(input.path ?? ''),
+        Boolean(input.staged),
+        input.chatId
+      )
+    }
+  )
+  ipcMain.handle(
+    'git:stage',
+    async (_event, input: { projectId: string; path: string; chatId?: string | null }) => {
+      return stageGitPath(String(input.projectId ?? ''), String(input.path ?? ''), input.chatId)
+    }
+  )
+  ipcMain.handle(
+    'git:unstage',
+    async (_event, input: { projectId: string; path: string; chatId?: string | null }) => {
+      return unstageGitPath(String(input.projectId ?? ''), String(input.path ?? ''), input.chatId)
+    }
+  )
+  ipcMain.handle(
+    'git:discard',
+    async (_event, input: { projectId: string; path: string; chatId?: string | null }) => {
+      return discardGitPath(String(input.projectId ?? ''), String(input.path ?? ''), input.chatId)
+    }
+  )
+  ipcMain.handle(
+    'git:commit',
+    async (_event, input: { projectId: string; message: string; chatId?: string | null }) => {
+      return commitGit(String(input.projectId ?? ''), String(input.message ?? ''), input.chatId)
+    }
+  )
+  ipcMain.handle(
+    'git:checkout',
+    async (_event, input: { projectId: string; ref: string; chatId?: string | null }) => {
+      return checkoutGit(String(input.projectId ?? ''), String(input.ref ?? ''), input.chatId)
+    }
+  )
+  ipcMain.handle(
+    'git:createBranch',
+    async (_event, input: { projectId: string; name: string; chatId?: string | null }) => {
+      return createGitBranch(String(input.projectId ?? ''), String(input.name ?? ''), input.chatId)
+    }
+  )
+  ipcMain.handle(
+    'git:setActive',
+    async (_event, input: { projectId: string | null; chatId?: string | null }) => {
+      await setGitActiveProject(input?.projectId ? String(input.projectId) : null, input?.chatId)
+      return true
+    }
+  )
+
+  void syncGitWatchers()
 
   ipcMain.handle('app:quit', () => {
     app.quit()
