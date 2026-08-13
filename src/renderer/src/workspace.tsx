@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode
 } from 'react'
@@ -12,13 +13,18 @@ import type {
   Chat,
   ChatEvent,
   ChatSummary,
+  FileMention,
   IndexEvent,
   OrientationCard,
+  PermissionMode,
+  PermissionRequest,
   Project,
   ProjectIndex,
   PublicSettings,
+  UpdateProjectInput,
   WorkspaceSnapshot
 } from '../../shared/types'
+import { normalizePermissionMode } from '../../shared/types'
 
 type StreamState = {
   status: 'idle' | 'streaming' | 'error'
@@ -40,28 +46,80 @@ type WorkspaceContextValue = {
   showNewProject: boolean
   showSettings: boolean
   showActivity: boolean
+  showBrowser: boolean
+  rightPaneOrder: RightPaneId[]
   setShowNewProject: (open: boolean) => void
   setShowSettings: (open: boolean) => void
   setShowActivity: (open: boolean) => void
+  setShowBrowser: (open: boolean) => void
+  swapRightPanes: () => void
   selectProject: (projectId: string) => void
   openChat: (chatId: string) => Promise<void>
   closeTab: (chatId: string) => void
   createProject: (name: string, path: string | null) => Promise<void>
+  updateProject: (input: UpdateProjectInput) => Promise<void>
   pickFolder: () => Promise<string | null>
   deleteProject: (projectId: string) => Promise<void>
   indexProject: (projectId: string) => Promise<void>
   getOrientation: (projectId: string) => Promise<OrientationCard>
   createChat: (projectId: string) => Promise<void>
   deleteChat: (chatId: string) => Promise<void>
-  sendMessage: (chatId: string, content: string, attachments?: Attachment[]) => Promise<void>
+  renameChat: (chatId: string, title: string) => Promise<void>
+  sendMessage: (
+    chatId: string,
+    content: string,
+    attachments?: Attachment[],
+    mentions?: FileMention[]
+  ) => Promise<void>
   stopChat: (chatId: string) => Promise<void>
+  setChatMode: (chatId: string, mode: PermissionMode) => Promise<void>
+  approvePlan: (chatId: string) => Promise<void>
+  resolvePermission: (requestId: string, decision: 'allow' | 'deny') => Promise<void>
+  rewindChat: (chatId: string, checkpointId: string) => Promise<void>
+  permissions: Record<string, PermissionRequest>
   saveSettings: (input: { apiKey?: string; model?: string }) => Promise<void>
-  refresh: () => Promise<void>
+  refresh: () => Promise<WorkspaceSnapshot>
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null)
 
 const emptyStream: StreamState = { status: 'idle', draft: '', error: null }
+
+export type RightPaneId = 'browser' | 'activity'
+
+const SESSION_KEY = 'grokcode.session'
+const PANE_ORDER_KEY = 'grokcode.rightPaneOrder'
+const DEFAULT_PANE_ORDER: RightPaneId[] = ['browser', 'activity']
+
+function readPaneOrder(): RightPaneId[] {
+  try {
+    if (localStorage.getItem(PANE_ORDER_KEY) === 'activity,browser') return ['activity', 'browser']
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_PANE_ORDER
+}
+
+type UiSession = {
+  openChatIds: string[]
+  activeChatId: string | null
+  activeProjectId: string | null
+}
+
+function readSession(): UiSession {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SESSION_KEY) ?? '') as Partial<UiSession>
+    return {
+      openChatIds: Array.isArray(parsed.openChatIds)
+        ? parsed.openChatIds.filter((id): id is string => typeof id === 'string')
+        : [],
+      activeChatId: typeof parsed.activeChatId === 'string' ? parsed.activeChatId : null,
+      activeProjectId: typeof parsed.activeProjectId === 'string' ? parsed.activeProjectId : null
+    }
+  } catch {
+    return { openChatIds: [], activeChatId: null, activeProjectId: null }
+  }
+}
 
 function applySnapshot(
   snapshot: WorkspaceSnapshot,
@@ -87,6 +145,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [chatsById, setChatsById] = useState<Record<string, Chat>>({})
   const [streams, setStreams] = useState<Record<string, StreamState>>({})
+  const sending = useRef(new Set<string>())
+  const [permissions, setPermissions] = useState<Record<string, PermissionRequest>>({})
   const [showNewProject, setShowNewProject] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showActivity, setShowActivityState] = useState(() => {
@@ -96,19 +156,77 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
     setShowActivityState(open)
     localStorage.setItem('grokcode.showActivity', open ? '1' : '0')
   }, [])
+  const [showBrowser, setShowBrowserState] = useState(() => {
+    return localStorage.getItem('grokcode.showBrowser') === '1'
+  })
+  const setShowBrowser = useCallback((open: boolean) => {
+    setShowBrowserState(open)
+    localStorage.setItem('grokcode.showBrowser', open ? '1' : '0')
+  }, [])
+  const [rightPaneOrder, setRightPaneOrder] = useState<RightPaneId[]>(readPaneOrder)
+  const swapRightPanes = useCallback(() => {
+    setRightPaneOrder((current) => {
+      const next: RightPaneId[] = [current[1], current[0]]
+      localStorage.setItem(PANE_ORDER_KEY, next.join(','))
+      return next
+    })
+  }, [])
 
   const refresh = useCallback(async () => {
-    const snapshot = await window.grokcode.getWorkspace()
+    const snapshot = (await window.grokcode.getWorkspace()) as WorkspaceSnapshot
     applySnapshot(snapshot, setProjects, setChats, setSettings, setIndexes)
     return snapshot
   }, [])
 
+  useEffect(
+    () => window.grokcode.onBrowserRequestShow?.(() => setShowBrowser(true)),
+    [setShowBrowser]
+  )
+
   useEffect(() => {
-    void refresh().then((snapshot) => {
-      setActiveProjectId((current) => current ?? snapshot.projects[0]?.id ?? null)
+    void (async () => {
+      const snapshot = await refresh()
+      const session = readSession()
+      const projectIds = new Set(snapshot.projects.map((project) => project.id))
+      const chatById = new Map(snapshot.chats.map((chat) => [chat.id, chat] as const))
+      const open = session.openChatIds.filter((id) => chatById.has(id))
+      const activeChat =
+        (session.activeChatId && open.includes(session.activeChatId) && session.activeChatId) ||
+        open.at(-1) ||
+        null
+      const restoredChat = activeChat ? chatById.get(activeChat) : undefined
+      const activeProject =
+        (session.activeProjectId && projectIds.has(session.activeProjectId) && session.activeProjectId) ||
+        restoredChat?.projectId ||
+        snapshot.projects[0]?.id ||
+        null
+
+      if (open.length > 0) {
+        const loaded = await Promise.all(open.map((id) => window.grokcode.getChat(id)))
+        setChatsById((current) => {
+          const next = { ...current }
+          for (const chat of loaded) next[chat.id] = chat
+          return next
+        })
+        setOpenChatIds(open)
+        setActiveChatId(activeChat)
+      }
+      setActiveProjectId(activeProject)
       setReady(true)
-    })
+    })()
   }, [refresh])
+
+  useEffect(() => {
+    if (!ready) return
+    localStorage.setItem(
+      SESSION_KEY,
+      JSON.stringify({
+        openChatIds,
+        activeChatId,
+        activeProjectId
+      } satisfies UiSession)
+    )
+  }, [ready, openChatIds, activeChatId, activeProjectId])
 
   useEffect(() => {
     return window.grokcode.onIndexEvent((event: IndexEvent) => {
@@ -139,6 +257,38 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
           [event.chatId]: emptyStream
         }))
         void refresh()
+        return
+      }
+      if (event.type === 'plan') {
+        setChatsById((current) => {
+          const chat = current[event.chatId]
+          if (!chat) return current
+          return { ...current, [event.chatId]: { ...chat, plan: event.plan } }
+        })
+        return
+      }
+      if (event.type === 'permission') {
+        setPermissions((current) => ({ ...current, [event.chatId]: event.request }))
+        return
+      }
+      if (event.type === 'permission-clear') {
+        setPermissions((current) => {
+          const existing = current[event.chatId]
+          if (!existing || existing.requestId !== event.requestId) return current
+          const next = { ...current }
+          delete next[event.chatId]
+          return next
+        })
+        return
+      }
+      if (event.type === 'chat') {
+        setChatsById((current) => ({ ...current, [event.chatId]: event.chat }))
+        setStreams((current) => {
+          if (!current[event.chatId] || current[event.chatId].status !== 'streaming') {
+            return { ...current, [event.chatId]: emptyStream }
+          }
+          return current
+        })
         return
       }
       setStreams((current) => ({
@@ -187,6 +337,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
     },
     [refresh]
   )
+
+  const updateProject = useCallback(async (input: UpdateProjectInput) => {
+    const project = await window.grokcode.updateProject(input)
+    setProjects((current) => current.map((item) => (item.id === project.id ? project : item)))
+  }, [])
 
   const pickFolder = useCallback(async () => {
     return window.grokcode.pickFolder()
@@ -244,22 +399,33 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
     [closeTab, refresh]
   )
 
+  const renameChat = useCallback(async (chatId: string, title: string) => {
+    const chat = await window.grokcode.renameChat(chatId, title)
+    setChatsById((current) => ({ ...current, [chatId]: chat }))
+    setChats((current) => current.map((item) => (item.id === chatId ? { ...item, title: chat.title } : item)))
+  }, [])
+
   const sendMessage = useCallback(
-    async (chatId: string, content: string, attachments?: Attachment[]) => {
+    async (chatId: string, content: string, attachments?: Attachment[], mentions?: FileMention[]) => {
+      if (sending.current.has(chatId)) return
+      sending.current.add(chatId)
       setStreams((current) => ({
         ...current,
         [chatId]: { status: 'streaming', draft: '', error: null }
       }))
       try {
-        const chat = await window.grokcode.sendMessage(chatId, content, attachments)
+        const chat = await window.grokcode.sendMessage(chatId, content, attachments, mentions)
         setChatsById((current) => ({ ...current, [chatId]: chat }))
         await refresh()
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Could not send'
+        const raw = error instanceof Error ? error.message : 'Could not send'
+        const message = raw.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
         setStreams((current) => ({
           ...current,
           [chatId]: { status: 'error', draft: '', error: message }
         }))
+      } finally {
+        sending.current.delete(chatId)
       }
     },
     [refresh]
@@ -267,7 +433,49 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
 
   const stopChat = useCallback(async (chatId: string) => {
     await window.grokcode.stopChat(chatId)
+    setPermissions((current) => {
+      if (!current[chatId]) return current
+      const next = { ...current }
+      delete next[chatId]
+      return next
+    })
   }, [])
+
+  const setChatMode = useCallback(async (chatId: string, mode: PermissionMode) => {
+    const next = normalizePermissionMode(mode)
+    const chat = await window.grokcode.setChatMode(chatId, next)
+    setChatsById((current) => ({ ...current, [chatId]: chat }))
+    setChats((current) =>
+      current.map((item) => (item.id === chatId ? { ...item, mode: chat.mode } : item))
+    )
+  }, [])
+
+  const approvePlan = useCallback(
+    async (chatId: string) => {
+      if (sending.current.has(chatId)) return
+      await stopChat(chatId)
+      await setChatMode(chatId, 'accept')
+      await sendMessage(chatId, 'Implement the approved plan. Start now.')
+    },
+    [sendMessage, setChatMode, stopChat]
+  )
+
+  const resolvePermission = useCallback(async (requestId: string, decision: 'allow' | 'deny') => {
+    await window.grokcode.resolvePermission(requestId, decision)
+  }, [])
+
+  const rewindChat = useCallback(async (chatId: string, checkpointId: string) => {
+    const chat = await window.grokcode.rewindChat(chatId, checkpointId)
+    setChatsById((current) => ({ ...current, [chatId]: chat }))
+    setStreams((current) => ({ ...current, [chatId]: emptyStream }))
+    setPermissions((current) => {
+      if (!current[chatId]) return current
+      const next = { ...current }
+      delete next[chatId]
+      return next
+    })
+    await refresh()
+  }, [refresh])
 
   const saveSettings = useCallback(async (input: { apiKey?: string; model?: string }) => {
     const next = await window.grokcode.setSettings(input)
@@ -289,21 +497,32 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
       showNewProject,
       showSettings,
       showActivity,
+      showBrowser,
+      rightPaneOrder,
       setShowNewProject,
       setShowSettings,
       setShowActivity,
+      setShowBrowser,
+      swapRightPanes,
       selectProject,
       openChat,
       closeTab,
       createProject,
+      updateProject,
       pickFolder,
       deleteProject,
       indexProject,
       getOrientation,
       createChat,
       deleteChat,
+      renameChat,
       sendMessage,
       stopChat,
+      setChatMode,
+      approvePlan,
+      resolvePermission,
+      rewindChat,
+      permissions,
       saveSettings,
       refresh
     }),
@@ -321,19 +540,30 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
       showNewProject,
       showSettings,
       showActivity,
+      showBrowser,
+      rightPaneOrder,
       setShowActivity,
+      setShowBrowser,
+      swapRightPanes,
       selectProject,
       openChat,
       closeTab,
       createProject,
+      updateProject,
       pickFolder,
       deleteProject,
       indexProject,
       getOrientation,
       createChat,
       deleteChat,
+      renameChat,
       sendMessage,
       stopChat,
+      setChatMode,
+      approvePlan,
+      resolvePermission,
+      rewindChat,
+      permissions,
       saveSettings,
       refresh
     ]

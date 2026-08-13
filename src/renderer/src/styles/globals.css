@@ -24,6 +24,8 @@
   --font-sans: "SF Pro Text", "Segoe UI", system-ui, sans-serif;
   --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
   --font-display: "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --spacing-titlebar: 52px;
+  --spacing-traffic: 80px;
 }
 
 html,

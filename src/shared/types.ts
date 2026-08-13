@@ -2,6 +2,7 @@ export type Project = {
   id: string
   name: string
   path: string | null
+  color?: string
   createdAt: string
   updatedAt: string
 }
@@ -12,12 +13,55 @@ export type Attachment = {
   data: string
 }
 
+export type FileMention = {
+  path: string
+  kind: 'file' | 'folder'
+}
+
+export type FileHit = {
+  path: string
+  name: string
+  kind: 'file' | 'folder'
+}
+
 export type Message = {
   id: string
   role: 'user' | 'assistant'
   content: string
   attachments?: Attachment[]
+  mentions?: FileMention[]
   createdAt: string
+}
+
+export type PermissionMode = 'ask' | 'accept' | 'plan'
+
+export type PlanEntry = {
+  content: string
+  status: 'pending' | 'in_progress' | 'completed'
+}
+
+export type ChatPlan = {
+  title: string
+  entries: PlanEntry[]
+}
+
+export type PermissionRequest = {
+  requestId: string
+  chatId: string
+  title: string
+  detail: string | null
+  toolKind: string | null
+}
+
+export type Checkpoint = {
+  id: string
+  chatId: string
+  messageId: string
+  createdAt: string
+  kind: 'git' | 'files'
+  gitSha: string | null
+  label: string
+  files: string[]
 }
 
 export type Chat = {
@@ -28,6 +72,9 @@ export type Chat = {
   createdAt: string
   updatedAt: string
   messages: Message[]
+  mode?: PermissionMode
+  plan?: ChatPlan | null
+  checkpoints?: Checkpoint[]
 }
 
 export type ChatSummary = Omit<Chat, 'messages'> & {
@@ -92,6 +139,21 @@ export type ChatEvent =
   | { type: 'delta'; chatId: string; text: string }
   | { type: 'done'; chatId: string; chat: Chat }
   | { type: 'error'; chatId: string; error: string }
+  | { type: 'plan'; chatId: string; plan: ChatPlan }
+  | { type: 'permission'; chatId: string; request: PermissionRequest }
+  | { type: 'permission-clear'; chatId: string; requestId: string }
+  | { type: 'chat'; chatId: string; chat: Chat }
+
+export function normalizePermissionMode(value: unknown): PermissionMode {
+  if (value === 'ask' || value === 'accept' || value === 'plan') return value
+  return 'accept'
+}
+
+export function nextPermissionMode(mode: PermissionMode): PermissionMode {
+  if (mode === 'ask') return 'accept'
+  if (mode === 'accept') return 'plan'
+  return 'ask'
+}
 
 export type ActivityKind = 'turn' | 'thought' | 'tool' | 'write' | 'plan' | 'permission' | 'error'
 
@@ -129,12 +191,31 @@ export type ActivitySnapshot = {
 export type CreateProjectInput = {
   name: string
   path?: string | null
+  color?: string
 }
 
 export type UpdateProjectInput = {
   id: string
   name?: string
   path?: string | null
+  color?: string
+}
+
+export type BrowserBounds = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export type BrowserState = {
+  url: string
+  title: string
+  canGoBack: boolean
+  canGoForward: boolean
+  loading: boolean
+  visible: boolean
+  error: string | null
 }
 
 export const DEFAULT_MODEL = 'grok-4.6'

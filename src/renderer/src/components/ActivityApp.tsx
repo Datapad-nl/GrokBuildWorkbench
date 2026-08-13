@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ActivityEvent, ActivitySnapshot } from '../../../shared/types'
 import { useWorkspace } from '../workspace'
 import { CodeDiff } from './CodeDiff'
+import { ReorderGrip } from './ReorderGrip'
 
 function clock(iso: string): string {
   const date = new Date(iso)
@@ -19,12 +20,89 @@ function kindLabel(event: ActivityEvent): string {
   return 'Turn'
 }
 
+const EXCERPT_LINES = 6
+const EXCERPT_CHARS = 320
+
+function detailExcerpt(text: string): { preview: string; expandable: boolean } {
+  const normalized = text.replace(/\s+$/u, '')
+  const lines = normalized.split('\n')
+  if (lines.length > EXCERPT_LINES) {
+    return { preview: lines.slice(0, EXCERPT_LINES).join('\n'), expandable: true }
+  }
+  if (normalized.length > EXCERPT_CHARS) {
+    return { preview: normalized.slice(0, EXCERPT_CHARS).trimEnd(), expandable: true }
+  }
+  return { preview: normalized, expandable: false }
+}
+
+function EventDetail({
+  text,
+  kind,
+  tool
+}: {
+  text: string
+  kind: ActivityEvent['kind']
+  tool: boolean
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const { preview, expandable } = useMemo(() => detailExcerpt(text), [text])
+  const shown = open || !expandable ? text : preview
+
+  function toggle(): void {
+    if (!expandable) return
+    if (window.getSelection()?.toString()) return
+    setOpen((value) => !value)
+  }
+
+  return (
+    <div className="mt-1.5">
+      <div className="relative">
+        <pre
+          className={`whitespace-pre-wrap break-words leading-5 ${
+            kind === 'thought'
+              ? 'font-sans text-[12.5px] text-ink/85'
+              : tool
+                ? 'font-mono text-[11.5px] text-ink/75'
+                : 'font-sans text-[12.5px] text-muted'
+          } ${expandable ? 'cursor-pointer' : ''}`}
+          onClick={toggle}
+          role={expandable ? 'button' : undefined}
+          tabIndex={expandable ? 0 : undefined}
+          aria-expanded={expandable ? open : undefined}
+          onKeyDown={(event) => {
+            if (!expandable) return
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              setOpen((value) => !value)
+            }
+          }}
+        >
+          {shown}
+          {expandable && !open ? '…' : null}
+        </pre>
+        {expandable && !open && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-7 bg-gradient-to-t from-sidebar to-transparent" />
+        )}
+      </div>
+      {expandable && (
+        <button
+          type="button"
+          className="mt-1 text-[11px] text-muted hover:text-ink active:translate-y-px"
+          onClick={() => setOpen((value) => !value)}
+        >
+          {open ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </div>
+  )
+}
+
 function EventRow({ event }: { event: ActivityEvent }): React.JSX.Element {
   const running = event.status === 'running'
   const failed = event.status === 'error'
   const tool = event.kind === 'tool'
   return (
-    <article className="border-b border-line/80 px-4 py-3">
+    <article className="border-b border-line/80 px-3 py-3">
       <div className="flex items-center gap-2">
         <span
           className={`font-mono text-[9px] uppercase tracking-[0.14em] ${
@@ -39,19 +117,7 @@ function EventRow({ event }: { event: ActivityEvent }): React.JSX.Element {
       {event.kind !== 'thought' && (
         <div className="mt-1 text-[13px] font-medium leading-5 text-ink">{event.title}</div>
       )}
-      {event.detail && (
-        <pre
-          className={`mt-1.5 whitespace-pre-wrap break-words leading-5 ${
-            event.kind === 'thought'
-              ? 'font-sans text-[12.5px] text-ink/85'
-              : tool
-                ? 'font-mono text-[11.5px] text-ink/75'
-                : 'font-sans text-[12.5px] text-muted'
-          }`}
-        >
-          {event.detail}
-        </pre>
-      )}
+      {event.detail && <EventDetail text={event.detail} kind={event.kind} tool={tool} />}
       {event.diffs?.map((diff, index) => (
         <CodeDiff key={`${diff.path}:${index}`} diff={diff} />
       ))}
@@ -60,7 +126,7 @@ function EventRow({ event }: { event: ActivityEvent }): React.JSX.Element {
 }
 
 export function ActivityApp(): React.JSX.Element {
-  const { setShowActivity } = useWorkspace()
+  const { showBrowser, setShowActivity, swapRightPanes } = useWorkspace()
   const [events, setEvents] = useState<ActivityEvent[]>([])
   const [filter, setFilter] = useState<string | 'edits' | null>('edits')
   const [pinned, setPinned] = useState(false)
@@ -124,15 +190,18 @@ export function ActivityApp(): React.JSX.Element {
 
   return (
     <div className="flex h-full flex-col bg-sidebar text-ink">
-      <header className="drag shrink-0 border-b border-line px-3 pb-3 pt-[52px]">
-        <div className="no-drag flex items-start justify-between gap-2">
-          <div className="min-w-0">
+      <header className="drag shrink-0">
+        <div className="flex h-titlebar items-center justify-between gap-2 border-b border-line px-3">
+          {showBrowser && (
+            <ReorderGrip onSwap={swapRightPanes} label="Drag to swap with browser" />
+          )}
+          <div className="no-drag min-w-0 flex-1">
             <h1 className="text-[13px] font-semibold tracking-tight">Thought process</h1>
-            <p className="mt-0.5 text-[11px] text-muted">
+            <p className="mt-px text-[11px] text-muted">
               {generating ? 'Grok is working' : visible.length === 0 ? 'Waiting for a chat' : 'Idle'}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="no-drag flex shrink-0 items-center gap-1">
             <button
               className="rounded-md px-2 py-1 text-[11px] text-muted hover:bg-raised hover:text-ink active:translate-y-px"
               onClick={() => void window.grokcode.clearActivity()}
@@ -147,7 +216,7 @@ export function ActivityApp(): React.JSX.Element {
             </button>
           </div>
         </div>
-        <div className="no-drag mt-3 flex flex-wrap gap-1">
+        <div className="no-drag flex flex-wrap gap-1 px-3 py-2">
           <button
             className={`rounded-md px-2 py-1 text-[11px] ${
               filter === 'edits' ? 'bg-raised text-ink' : 'text-muted hover:bg-raised hover:text-ink'
@@ -179,7 +248,7 @@ export function ActivityApp(): React.JSX.Element {
       </header>
       <div ref={scroller} className="select-text min-h-0 flex-1 overflow-y-auto" onScroll={onScroll}>
         {visible.length === 0 ? (
-          <div className="px-5 pt-10 text-[13px] leading-6 text-muted">
+          <div className="px-3 pt-6 text-[13px] leading-6 text-muted">
             {filter === 'edits'
               ? 'File edits will show here as side-by-side diffs once Grok changes a file.'
               : 'Send a message in a chat. Thinking, tool calls, and the plan show up here as Grok works.'}

@@ -84,6 +84,33 @@ export function NewProjectModal(): React.JSX.Element | null {
   )
 }
 
+const SUPPORT_URL = 'https://buymeacoffee.com/datapad'
+
+function CoffeeIcon(): React.JSX.Element {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4 9h13v6.2A4.8 4.8 0 0 1 12.2 20H8.8A4.8 4.8 0 0 1 4 15.2V9Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M17 10.2h1.4a2.8 2.8 0 1 1 0 5.6H17"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M4 21.2h12.2M8 4.4c.25.9.25 1.8 0 2.7M11.2 4.4c.25.9.25 1.8 0 2.7M14.4 4.4c.25.9.25 1.8 0 2.7"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
 export function SettingsModal(): React.JSX.Element | null {
   const { showSettings, setShowSettings, settings, saveSettings } = useWorkspace()
   const [tab, setTab] = useState<'general' | 'appearance'>('general')
@@ -167,6 +194,23 @@ export function SettingsModal(): React.JSX.Element | null {
               }}
               className="mt-1 w-full rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-[13px] outline-none focus:border-accent/60"
             />
+            <div className="mt-5 rounded-lg border border-line bg-canvas px-3 py-3">
+              <div className="text-[12px] font-medium text-ink">Support</div>
+              <p className="mt-1 text-[12px] leading-5 text-muted">
+                GrokCode is free. If it helps your work, you can buy me a coffee.
+              </p>
+              <button
+                type="button"
+                data-testid="settings-support"
+                className="mt-3 inline-flex items-center gap-2 rounded-lg border border-line bg-raised px-3 py-2 text-[12px] font-medium text-ink hover:bg-surface active:translate-y-px"
+                onClick={() => {
+                  void window.grokcode.openExternal(SUPPORT_URL)
+                }}
+              >
+                <CoffeeIcon />
+                Buy me a coffee
+              </button>
+            </div>
             <div className="mt-5 flex justify-end gap-2">
               <button
                 className="rounded-lg px-3 py-2 text-[12px] text-muted hover:text-ink"

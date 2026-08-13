@@ -9,3 +9,4 @@ Electron + Vite + React desktop app. Projects in the sidebar, concurrent Grok ch
 - Data lives in Electron `userData/grokcode`
 - Chats run through `grok agent stdio` (ACP). Auth is `grok login` / SuperGrok.
 - Existing `~/.grok/sessions` for a project folder are imported into the sidebar.
+- Open every web page in the GrokCode BrowserPane via the `browser` MCP (`navigate`). Do not launch an external browser. After UI changes, navigate to the local URL and call `get_state` so you can verify your own work.

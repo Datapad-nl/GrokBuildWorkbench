@@ -3,6 +3,17 @@ import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import readline from 'readline'
+import { BROWSER_SESSION_RULE, browserMcpServers } from './browserAgent'
+import {
+  askPermission,
+  cancelAllPermissions,
+  decidePermission,
+  fallbackSessionId,
+  modeForSession,
+  noteDeniedPermission,
+  outcomeFor,
+  type PermissionParams
+} from './permissions'
 import { getApiKey } from './store'
 
 type JsonRpc = {
@@ -86,6 +97,24 @@ function request<T>(method: string, params: unknown, timeoutMs: number): Promise
   })
 }
 
+async function settlePermission(message: JsonRpc): Promise<void> {
+  const params = (message.params ?? {}) as PermissionParams
+  const sessionId = params.sessionId || fallbackSessionId()
+  const options = params.options ?? []
+  const mode = modeForSession(sessionId)
+  const decision = decidePermission(mode, params)
+  const requestId = message.id === undefined ? null : String(message.id)
+
+  if (decision === 'deny') noteDeniedPermission(sessionId, params)
+  const result =
+    decision === 'ask' && requestId
+      ? await askPermission(requestId, sessionId, params)
+      : outcomeFor(options, decision === 'deny' ? 'deny' : 'allow')
+
+  if (message.id === undefined) return
+  send({ jsonrpc: '2.0', id: message.id, result })
+}
+
 function handleMessage(message: JsonRpc): void {
   if (message.method === 'session/update') {
     const params = message.params as SessionUpdate | undefined
@@ -96,19 +125,7 @@ function handleMessage(message: JsonRpc): void {
   }
 
   if (message.method === 'session/request_permission') {
-    const params = message.params as {
-      options?: Array<{ optionId: string; kind?: string }>
-    }
-    const options = params?.options ?? []
-    const allow =
-      options.find((option) => (option.kind ?? '').toLowerCase().startsWith('allow')) ?? options[0]
-    send({
-      jsonrpc: '2.0',
-      id: message.id,
-      result: allow
-        ? { outcome: { outcome: 'selected', optionId: allow.optionId } }
-        : { outcome: { outcome: 'cancelled' } }
-    })
+    void settlePermission(message)
     return
   }
 
@@ -179,6 +196,7 @@ function attachProcess(child: ChildProcessWithoutNullStreams): void {
       waiter.reject(new Error('Grok Build exited'))
     }
     pending.clear()
+    cancelAllPermissions()
   })
 }
 
@@ -192,7 +210,7 @@ export function onSessionUpdate(listener: (update: SessionUpdate) => void): () =
 export async function ensureAgent(): Promise<void> {
   if (ready) return ready
   ready = (async () => {
-    const child = spawn(grokBinary(), ['agent', '--no-leader', '--always-approve', 'stdio'], {
+    const child = spawn(grokBinary(), ['agent', '--no-leader', 'stdio'], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: process.env
     })
@@ -209,11 +227,23 @@ export async function ensureAgent(): Promise<void> {
   }
 }
 
+async function sessionConfig(cwd: string): Promise<{
+  cwd: string
+  mcpServers: Awaited<ReturnType<typeof browserMcpServers>>
+  _meta: { rules: string }
+}> {
+  return {
+    cwd,
+    mcpServers: await browserMcpServers(),
+    _meta: { rules: BROWSER_SESSION_RULE }
+  }
+}
+
 export async function newSession(cwd: string): Promise<string> {
   await ensureAgent()
   const result = await request<{ sessionId: string }>(
     'session/new',
-    { cwd, mcpServers: [] },
+    await sessionConfig(cwd),
     30_000
   )
   return result.sessionId
@@ -221,7 +251,11 @@ export async function newSession(cwd: string): Promise<string> {
 
 export async function loadSession(sessionId: string, cwd: string): Promise<void> {
   await ensureAgent()
-  await request('session/load', { sessionId, cwd, mcpServers: [] }, 60_000)
+  await request(
+    'session/load',
+    { sessionId, ...(await sessionConfig(cwd)) },
+    60_000
+  )
 }
 
 export async function promptSession(

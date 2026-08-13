@@ -57,7 +57,7 @@ export function IndexStatus({
                 : 'bg-line'
         }`}
       />
-      <span className="font-mono text-[8px] uppercase tracking-[0.12em] text-muted">
+      <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted">
         {stateLabel(state)}
         {state === 'indexed' && index?.fileCount != null ? ` · ${index.fileCount}` : ''}
       </span>

@@ -3,9 +3,14 @@ import type { ThemeFile, ThemeSummary } from '../shared/theme'
 import type {
   ActivityFeed,
   ActivitySnapshot,
+  BrowserBounds,
+  BrowserState,
   ChatEvent,
   CreateProjectInput,
+  FileHit,
+  FileMention,
   IndexEvent,
+  PermissionMode,
   UpdateProjectInput
 } from '../shared/types'
 
@@ -24,9 +29,18 @@ const api = {
   sendMessage: (
     chatId: string,
     content: string,
-    attachments?: Array<{ id: string; mimeType: string; data: string }>
-  ) => ipcRenderer.invoke('chat:send', { chatId, content, attachments }),
+    attachments?: Array<{ id: string; mimeType: string; data: string }>,
+    mentions?: FileMention[]
+  ) => ipcRenderer.invoke('chat:send', { chatId, content, attachments, mentions }),
+  searchFiles: (projectId: string, query: string) =>
+    ipcRenderer.invoke('project:searchFiles', { projectId, query }) as Promise<FileHit[]>,
   stopChat: (chatId: string) => ipcRenderer.invoke('chat:stop', chatId),
+  setChatMode: (chatId: string, mode: PermissionMode) =>
+    ipcRenderer.invoke('chat:setMode', { chatId, mode }),
+  resolvePermission: (requestId: string, decision: 'allow' | 'deny') =>
+    ipcRenderer.invoke('chat:resolvePermission', { requestId, decision }),
+  rewindChat: (chatId: string, checkpointId: string) =>
+    ipcRenderer.invoke('chat:rewind', { chatId, checkpointId }),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (input: { apiKey?: string; model?: string }) =>
     ipcRenderer.invoke('settings:set', input),
@@ -63,7 +77,35 @@ const api = {
     return () => {
       ipcRenderer.removeListener('activity:event', wrapped)
     }
-  }
+  },
+  getBrowserState: () => ipcRenderer.invoke('browser:getState') as Promise<BrowserState>,
+  setBrowserVisible: (visible: boolean) =>
+    ipcRenderer.invoke('browser:setVisible', visible) as Promise<BrowserState>,
+  setBrowserBounds: (bounds: BrowserBounds) =>
+    ipcRenderer.invoke('browser:setBounds', bounds) as Promise<BrowserState>,
+  navigateBrowser: (url: string) =>
+    ipcRenderer.invoke('browser:navigate', url) as Promise<BrowserState>,
+  browserBack: () => ipcRenderer.invoke('browser:back') as Promise<BrowserState>,
+  browserForward: () => ipcRenderer.invoke('browser:forward') as Promise<BrowserState>,
+  reloadBrowser: () => ipcRenderer.invoke('browser:reload') as Promise<BrowserState>,
+  stopBrowser: () => ipcRenderer.invoke('browser:stop') as Promise<BrowserState>,
+  clearBrowserData: () => ipcRenderer.invoke('browser:clearData') as Promise<BrowserState>,
+  onBrowserState: (listener: (state: BrowserState) => void) => {
+    const wrapped = (_event: unknown, payload: BrowserState): void => listener(payload)
+    ipcRenderer.on('browser:state', wrapped)
+    return () => {
+      ipcRenderer.removeListener('browser:state', wrapped)
+    }
+  },
+  onBrowserRequestShow: (listener: () => void) => {
+    const wrapped = (): void => listener()
+    ipcRenderer.on('browser:requestShow', wrapped)
+    return () => {
+      ipcRenderer.removeListener('browser:requestShow', wrapped)
+    }
+  },
+  openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url) as Promise<boolean>,
+  quitApp: () => ipcRenderer.invoke('app:quit') as Promise<boolean>
 }
 
 export type GrokCodeApi = typeof api

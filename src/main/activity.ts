@@ -120,6 +120,27 @@ export function startTurn(input: {
   })
 }
 
+export function emitPermissionActivity(input: {
+  chatId: string
+  sessionId: string | null
+  title: string
+  detail: string | null
+  status: ActivityStatus
+  requestId: string
+}): void {
+  const bound = input.sessionId ? boundFields(input.sessionId) : { chatId: input.chatId, chatTitle: null }
+  emitActivity({
+    kind: 'permission',
+    chatId: input.chatId,
+    chatTitle: bound.chatTitle,
+    sessionId: input.sessionId,
+    title: input.title,
+    detail: input.detail,
+    status: input.status,
+    coalesceKey: `permission:${input.requestId}`
+  })
+}
+
 export function finishTurn(chatId: string, status: Exclude<ActivityStatus, 'running'>, error?: string): void {
   const current = events.find((event) => event.coalesceKey === `turn:${chatId}`)
   emitActivity({

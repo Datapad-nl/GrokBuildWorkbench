@@ -1,8 +1,16 @@
 import { app } from 'electron'
 import { mkdir, readFile, readdir, rm, writeFile } from 'fs/promises'
 import { join } from 'path'
+import { normalizeHexColor, pickProjectColor } from '../shared/projectColor'
 import { DEFAULT_THEME_ID } from '../shared/theme'
-import { DEFAULT_MODEL, type Chat, type ChatSummary, type Project, type PublicSettings } from '../shared/types'
+import {
+  DEFAULT_MODEL,
+  type Chat,
+  type ChatSummary,
+  type Project,
+  type PublicSettings,
+  type UpdateProjectInput
+} from '../shared/types'
 import { queueIndex } from './codegraph'
 import { id, now } from './ids'
 import { grokBuildSignedIn, listGrokSessions, readGrokHistory } from './sessions'
@@ -87,9 +95,30 @@ export async function ensureStore(): Promise<void> {
   await mkdir(join(dataDir(), 'themes'), { recursive: true })
 }
 
+function withProjectColors(projects: Project[]): { projects: Project[]; changed: boolean } {
+  let changed = false
+  const taken: string[] = []
+  const next = projects.map((project) => {
+    const existing = normalizeHexColor(project.color)
+    if (existing) {
+      taken.push(existing)
+      if (existing === project.color) return project
+      changed = true
+      return { ...project, color: existing }
+    }
+    const color = pickProjectColor(taken)
+    taken.push(color)
+    changed = true
+    return { ...project, color }
+  })
+  return { projects: next, changed }
+}
+
 async function loadProjects(): Promise<Project[]> {
   const data = await readJson<StoreData>(projectsPath(), { projects: [] })
-  return data.projects
+  const { projects, changed } = withProjectColors(data.projects)
+  if (changed) await saveProjects(projects)
+  return projects
 }
 
 async function saveProjects(projects: Project[]): Promise<void> {
@@ -192,13 +221,14 @@ export async function listProjects(): Promise<Project[]> {
   return [...projects].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }
 
-export async function createProject(name: string, path: string | null): Promise<Project> {
+export async function createProject(name: string, path: string | null, color?: string): Promise<Project> {
   const projects = await loadProjects()
   const timestamp = now()
   const project: Project = {
     id: id(),
     name: name.trim() || 'Untitled project',
     path,
+    color: normalizeHexColor(color) ?? pickProjectColor(projects.map((item) => item.color)),
     createdAt: timestamp,
     updatedAt: timestamp
   }
@@ -208,16 +238,23 @@ export async function createProject(name: string, path: string | null): Promise<
   return project
 }
 
-export async function updateProject(input: { id: string; name?: string; path?: string | null }): Promise<Project> {
+export async function updateProject(input: UpdateProjectInput): Promise<Project> {
   const projects = await loadProjects()
   const index = projects.findIndex((project) => project.id === input.id)
   if (index === -1) throw new Error('Project not found')
   const current = projects[index]
+  const nextName = input.name !== undefined ? input.name.trim() || current.name : current.name
+  const nextPath = input.path !== undefined ? input.path : current.path
+  const nextColor =
+    input.color !== undefined ? (normalizeHexColor(input.color) ?? current.color) : current.color
+  const renamed = nextName !== current.name
+  const moved = nextPath !== current.path
   const next: Project = {
     ...current,
-    name: input.name !== undefined ? input.name.trim() || current.name : current.name,
-    path: input.path !== undefined ? input.path : current.path,
-    updatedAt: now()
+    name: nextName,
+    path: nextPath,
+    color: nextColor,
+    updatedAt: renamed || moved ? now() : current.updatedAt
   }
   projects[index] = next
   await saveProjects(projects)
