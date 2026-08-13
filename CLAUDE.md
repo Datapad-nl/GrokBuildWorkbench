@@ -1,0 +1,11 @@
+# GrokCode
+
+Electron + Vite + React desktop app. Projects in the sidebar, concurrent Grok chats.
+
+- Main process: `src/main` (persistence, xAI streaming, IPC)
+- Preload: `src/preload`
+- UI: `src/renderer/src`
+- Shared types: `src/shared/types.ts`
+- Data lives in Electron `userData/grokcode`
+- Chats run through `grok agent stdio` (ACP). Auth is `grok login` / SuperGrok.
+- Existing `~/.grok/sessions` for a project folder are imported into the sidebar.

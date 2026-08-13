@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GrokCode — design directions</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f0f10;
+      --ink: #f4f4f5;
+      --muted: #a1a1aa;
+      --line: rgba(255,255,255,0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    header {
+      padding: 28px 32px 8px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+      margin: 0 0 6px;
+    }
+    p {
+      margin: 0;
+      color: var(--muted);
+      max-width: 62ch;
+    }
+    main {
+      display: grid;
+      gap: 28px;
+      padding: 24px 32px 48px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    figure {
+      margin: 0;
+    }
+    figcaption {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 16px;
+      margin-bottom: 10px;
+    }
+    strong { font-size: 15px; letter-spacing: -0.02em; }
+    span { color: var(--muted); font-size: 13px; }
+    img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: #111;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>GrokCode design directions</h1>
+    <p>Mood frames from your current window. Type and code will be messy — judge color, depth, and chrome.</p>
+  </header>
+  <main>
+    <figure>
+      <figcaption>
+        <strong>A — Brass Console</strong>
+        <span>Warm instrument. Gold as a mark, not a box.</span>
+      </figcaption>
+      <img src="b-signal-night.jpg" alt="Direction A, Brass Console" />
+    </figure>
+    <figure>
+      <figcaption>
+        <strong>B — Signal Night</strong>
+        <span>Cool zinc. Linear / Raycast school. Recommended.</span>
+      </figcaption>
+      <img src="a-brass-console.jpg" alt="Direction B, Signal Night" />
+    </figure>
+    <figure>
+      <figcaption>
+        <strong>C — Warm Atelier</strong>
+        <span>Night studio. Serif dossier. Most distinctive.</span>
+      </figcaption>
+      <img src="c-warm-atelier.jpg" alt="Direction C, Warm Atelier" />
+    </figure>
+  </main>
+</body>
+</html>

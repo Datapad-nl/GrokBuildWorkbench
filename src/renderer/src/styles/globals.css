@@ -1,0 +1,167 @@
+@import "tailwindcss";
+
+@theme {
+  --color-canvas: #141414;
+  --color-sidebar: #191919;
+  --color-surface: #1e1e1e;
+  --color-raised: #252525;
+  --color-line: #2c2c2c;
+  --color-ink: #f2f2f0;
+  --color-muted: #8e8e86;
+  --color-accent: #c4a35a;
+  --color-accent-ink: #141414;
+  --color-danger: #c45c4a;
+  --color-active: #141414;
+  --color-overlay: rgba(0, 0, 0, 0.5);
+  --color-code: #252525;
+  --color-code-block: #1a1a1a;
+  --color-diff-add: #b6efc6;
+  --color-diff-add-bg: #1f3d2b;
+  --color-diff-del: #ffb4a8;
+  --color-diff-del-bg: #5c2a24;
+  --color-scrollbar: #3a3a3a;
+  --color-scrollbar-hover: #4e4e4e;
+  --font-sans: "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+  --font-display: "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  overflow: hidden;
+  user-select: none;
+}
+
+button,
+input,
+textarea {
+  font-family: inherit;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-scrollbar) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-scrollbar-hover);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.drag {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+.markdown,
+.select-text {
+  user-select: text;
+}
+
+.markdown p {
+  margin: 0 0 0.85em;
+}
+
+.markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 1.1em 0 0.5em;
+}
+
+.markdown h1 { font-size: 1.15rem; }
+.markdown h2 { font-size: 1.05rem; }
+.markdown h3 { font-size: 1rem; }
+
+.markdown ul,
+.markdown ol {
+  margin: 0 0 0.85em;
+  padding-left: 1.2em;
+}
+
+.markdown code {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  background: var(--color-code);
+  padding: 0.12em 0.35em;
+  border-radius: var(--radius-sm);
+}
+
+.markdown pre {
+  background: var(--color-code-block);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+  overflow-x: auto;
+  margin: 0 0 0.9em;
+}
+
+.markdown pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.markdown a {
+  color: var(--color-accent);
+}
+
+.cursor {
+  display: inline-block;
+  width: 0.5ch;
+  height: 1em;
+  margin-left: 1px;
+  background: var(--color-accent);
+  vertical-align: text-bottom;
+  animation: blink 1s steps(1) infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+.streaming-dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}

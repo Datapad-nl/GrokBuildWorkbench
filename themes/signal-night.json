@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "id": "signal-night",
+  "name": "Signal Night",
+  "description": "Cool zinc. Quiet brass. Product chrome.",
+  "colors": {
+    "canvas": "#0f0f10",
+    "sidebar": "#141416",
+    "surface": "#18181b",
+    "raised": "#1f1f23",
+    "line": "rgba(255, 255, 255, 0.08)",
+    "ink": "#f4f4f5",
+    "muted": "#71717a",
+    "accent": "#b08d4a",
+    "accentInk": "#0f0f10",
+    "danger": "#e2553d",
+    "active": "#1f1f23",
+    "overlay": "rgba(0, 0, 0, 0.55)",
+    "code": "#27272a",
+    "codeBlock": "#111113",
+    "diffAdd": "#86efac",
+    "diffAddBg": "#14532d",
+    "diffDel": "#fca5a5",
+    "diffDelBg": "#7f1d1d",
+    "scrollbar": "#3f3f46",
+    "scrollbarHover": "#52525b"
+  },
+  "fonts": {
+    "sans": "\"IBM Plex Sans\", ui-sans-serif, system-ui, sans-serif",
+    "mono": "\"IBM Plex Mono\", ui-monospace, Menlo, monospace",
+    "display": "\"IBM Plex Sans\", ui-sans-serif, system-ui, sans-serif",
+    "urls": [
+      "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+    ]
+  },
+  "radii": {
+    "sm": 4,
+    "md": 8,
+    "lg": 12
+  }
+}

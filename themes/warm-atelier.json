@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "id": "warm-atelier",
+  "name": "Warm Atelier",
+  "description": "Night studio. Serif dossier. Editorial center.",
+  "colors": {
+    "canvas": "#141210",
+    "sidebar": "#1a1815",
+    "surface": "#1e1b17",
+    "raised": "#26221c",
+    "line": "#3d372e",
+    "ink": "#f6f1e8",
+    "muted": "#a39888",
+    "accent": "#c9a36a",
+    "accentInk": "#141210",
+    "danger": "#c45c4a",
+    "active": "#2c261e",
+    "overlay": "rgba(10, 8, 6, 0.55)",
+    "code": "#26221c",
+    "codeBlock": "#181614",
+    "diffAdd": "#c5d4b0",
+    "diffAddBg": "#2a2e22",
+    "diffDel": "#e0c4b4",
+    "diffDelBg": "#3a2a24",
+    "scrollbar": "#3d372e",
+    "scrollbarHover": "#534b40"
+  },
+  "fonts": {
+    "sans": "Outfit, ui-sans-serif, system-ui, sans-serif",
+    "mono": "\"IBM Plex Mono\", ui-monospace, Menlo, monospace",
+    "display": "\"Instrument Serif\", \"Iowan Old Style\", Palatino, serif",
+    "urls": [
+      "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Instrument+Serif&family=Outfit:wght@400;500;600;700&display=swap"
+    ]
+  },
+  "radii": {
+    "sm": 8,
+    "md": 12,
+    "lg": 20
+  }
+}

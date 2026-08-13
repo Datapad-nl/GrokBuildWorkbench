@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "id": "brass-console",
+  "name": "Brass Console",
+  "description": "Warm instrument. Gold as a mark, not a box.",
+  "colors": {
+    "canvas": "#161412",
+    "sidebar": "#1c1a17",
+    "surface": "#211e1a",
+    "raised": "#2a261f",
+    "line": "#3a342a",
+    "ink": "#f3ede3",
+    "muted": "#9a9286",
+    "accent": "#c4a35a",
+    "accentInk": "#161412",
+    "danger": "#c45c4a",
+    "active": "#3d3424",
+    "overlay": "rgba(12, 10, 8, 0.55)",
+    "code": "#2a261f",
+    "codeBlock": "#1a1814",
+    "diffAdd": "#b7d4b0",
+    "diffAddBg": "#243326",
+    "diffDel": "#e0b4aa",
+    "diffDelBg": "#3d2824",
+    "scrollbar": "#3a342a",
+    "scrollbarHover": "#524a3c"
+  },
+  "fonts": {
+    "sans": "Outfit, ui-sans-serif, system-ui, sans-serif",
+    "mono": "\"JetBrains Mono\", ui-monospace, Menlo, monospace",
+    "display": "Outfit, ui-sans-serif, system-ui, sans-serif",
+    "urls": [
+      "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap"
+    ]
+  },
+  "radii": {
+    "sm": 6,
+    "md": 10,
+    "lg": 14
+  }
+}
