@@ -1,7 +1,8 @@
 import { app, BrowserWindow, WebContentsView, session } from 'electron'
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
-import type { BrowserBounds, BrowserState } from '../shared/types'
+import type { BrowserAnnotationHit, BrowserBounds, BrowserState } from '../shared/types'
+import { ANNOTATE_CANCEL, ANNOTATE_CLEANUP, ANNOTATE_PICKER } from './annotatePicker'
 
 const PARTITION = 'persist:grokcode-browser'
 
@@ -12,6 +13,10 @@ let lastError: string | null = null
 let lastUrl = ''
 let lastBounds: BrowserBounds = { x: 0, y: 0, width: 0, height: 0 }
 let persistReady: Promise<void> | null = null
+let lastEmitted = ''
+let emitTimer: ReturnType<typeof setTimeout> | null = null
+let loadedPersisted = false
+let picking = false
 
 function persistPath(): string {
   return join(app.getPath('userData'), 'grokcode', 'browser.json')
@@ -43,11 +48,28 @@ function contents(): Electron.WebContents | null {
   return view.webContents
 }
 
-function emit(): void {
-  const state = getBrowserState()
-  for (const window of BrowserWindow.getAllWindows()) {
-    window.webContents.send('browser:state', state)
+function stateKey(state: BrowserState): string {
+  return `${state.url}\0${state.title}\0${state.canGoBack}\0${state.canGoForward}\0${state.loading}\0${state.visible}\0${state.error ?? ''}`
+}
+
+function emit(immediate = false): void {
+  const send = (): void => {
+    emitTimer = null
+    const state = getBrowserState()
+    const key = stateKey(state)
+    if (key === lastEmitted) return
+    lastEmitted = key
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send('browser:state', state)
+    }
   }
+  if (immediate) {
+    if (emitTimer) clearTimeout(emitTimer)
+    send()
+    return
+  }
+  if (emitTimer) return
+  emitTimer = setTimeout(send, 80)
 }
 
 export function requestShowBrowser(): void {
@@ -83,6 +105,18 @@ function applyBounds(): void {
   if (show) view.setBounds({ x, y, width, height })
 }
 
+function loadPersistedIfNeeded(): void {
+  if (loadedPersisted || !lastUrl) return
+  const wc = contents()
+  if (!wc) return
+  if (sanitizeUrl(wc.getURL())) {
+    loadedPersisted = true
+    return
+  }
+  loadedPersisted = true
+  void wc.loadURL(lastUrl)
+}
+
 function wireContents(wc: Electron.WebContents): void {
   wc.setWindowOpenHandler((details) => {
     const url = sanitizeUrl(details.url)
@@ -106,9 +140,10 @@ function wireContents(wc: Electron.WebContents): void {
 
   wc.on('did-navigate', onChange)
   wc.on('did-navigate-in-page', onChange)
-  wc.on('page-title-updated', onChange)
+  wc.on('page-title-updated', () => emit())
   wc.on('did-start-loading', () => {
     lastError = null
+    if (picking) void cancelBrowserAnnotate()
     emit()
   })
   wc.on('did-stop-loading', onChange)
@@ -129,7 +164,7 @@ function ensureView(): WebContentsView {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
-      backgroundThrottling: false
+      backgroundThrottling: true
     }
   })
   view.setBackgroundColor('#141414')
@@ -160,12 +195,12 @@ function layoutHost(window: BrowserWindow): void {
 
 export function attachBrowser(window: BrowserWindow): void {
   host = window
-  const current = ensureView()
-  if (!window.contentView.children.includes(current)) {
-    window.contentView.addChildView(current)
-  }
-  if (lastUrl && !sanitizeUrl(current.webContents.getURL())) {
-    void current.webContents.loadURL(lastUrl)
+  if (visible) {
+    const current = ensureView()
+    if (!window.contentView.children.includes(current)) {
+      window.contentView.addChildView(current)
+    }
+    loadPersistedIfNeeded()
   }
   layoutHost(window)
 
@@ -207,19 +242,31 @@ export function getBrowserState(): BrowserState {
 
 export function setBrowserVisible(next: boolean): BrowserState {
   visible = next
-  if (next) ensureView()
+  if (next) {
+    ensureView()
+    loadPersistedIfNeeded()
+  }
   applyBounds()
-  emit()
+  emit(true)
   return getBrowserState()
 }
 
 export function setBrowserBounds(bounds: BrowserBounds): BrowserState {
-  lastBounds = {
+  const next = {
     x: Math.round(bounds.x),
     y: Math.round(bounds.y),
     width: Math.max(0, Math.round(bounds.width)),
     height: Math.max(0, Math.round(bounds.height))
   }
+  if (
+    next.x === lastBounds.x &&
+    next.y === lastBounds.y &&
+    next.width === lastBounds.width &&
+    next.height === lastBounds.height
+  ) {
+    return getBrowserState()
+  }
+  lastBounds = next
   applyBounds()
   return getBrowserState()
 }
@@ -228,7 +275,7 @@ export async function navigateBrowser(input: string): Promise<BrowserState> {
   const url = sanitizeUrl(input)
   if (!url) {
     lastError = 'Enter an http(s) address'
-    emit()
+    emit(true)
     return getBrowserState()
   }
   lastError = null
@@ -271,6 +318,7 @@ export async function clearBrowserData(): Promise<BrowserState> {
   await ses.clearCache()
   lastUrl = ''
   lastError = null
+  loadedPersisted = false
   await savePersisted('')
   const wc = contents()
   if (wc) {
@@ -280,6 +328,93 @@ export async function clearBrowserData(): Promise<BrowserState> {
       // ignored
     }
   }
-  emit()
+  emit(true)
   return getBrowserState()
+}
+
+function parseAnnotationHit(
+  raw: unknown
+): Omit<BrowserAnnotationHit, 'url' | 'title' | 'screenshotData'> | null {
+  if (!raw || typeof raw !== 'object') return null
+  const row = raw as Record<string, unknown>
+  const rectRaw = row.rect
+  if (!rectRaw || typeof rectRaw !== 'object') return null
+  const rect = rectRaw as Record<string, unknown>
+  const num = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0)
+  return {
+    selector: typeof row.selector === 'string' ? row.selector : '',
+    tag: typeof row.tag === 'string' ? row.tag : '',
+    text: typeof row.text === 'string' ? row.text : '',
+    html: typeof row.html === 'string' ? row.html : '',
+    rect: {
+      x: num(rect.x),
+      y: num(rect.y),
+      width: num(rect.width),
+      height: num(rect.height)
+    }
+  }
+}
+
+export async function cancelBrowserAnnotate(): Promise<void> {
+  const wc = contents()
+  if (wc && !wc.isDestroyed()) {
+    try {
+      await wc.executeJavaScript(ANNOTATE_CANCEL)
+    } catch {
+      /* page gone */
+    }
+  }
+  picking = false
+}
+
+export async function startBrowserAnnotate(): Promise<BrowserAnnotationHit | null> {
+  if (picking) await cancelBrowserAnnotate()
+  const wc = contents()
+  if (!wc || wc.isDestroyed()) throw new Error('Browser is not open')
+  const url = sanitizeUrl(wc.getURL())
+  if (!url) throw new Error('Open a page first')
+
+  picking = true
+  let raw: unknown = null
+  try {
+    raw = await wc.executeJavaScript(ANNOTATE_PICKER, true)
+  } catch (error) {
+    picking = false
+    throw error
+  }
+  if (!picking) return null
+  picking = false
+
+  const parsed = parseAnnotationHit(raw)
+  if (!parsed) {
+    try {
+      await wc.executeJavaScript(ANNOTATE_CLEANUP)
+    } catch {
+      /* ignore */
+    }
+    return null
+  }
+
+  let screenshotData = ''
+  try {
+    let image = await wc.capturePage()
+    const size = image.getSize()
+    if (size.width > 1280) image = image.resize({ width: 1280 })
+    screenshotData = image.toPNG().toString('base64')
+  } catch {
+    screenshotData = ''
+  }
+
+  try {
+    await wc.executeJavaScript(ANNOTATE_CLEANUP)
+  } catch {
+    /* ignore */
+  }
+
+  return {
+    url,
+    title: wc.getTitle() || '',
+    ...parsed,
+    screenshotData
+  }
 }

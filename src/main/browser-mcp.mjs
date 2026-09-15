@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Stdio MCP for GrokCode BrowserPane.
- * Talks to the loopback HTTP API started by the GrokCode main process.
+ * Stdio MCP for the Grok Build Workbench BrowserPane.
+ * Talks to the loopback HTTP API started by the Workbench main process.
  */
 
 const BASE = process.env.GROKCODE_BROWSER_URL
@@ -16,13 +16,13 @@ const TOOLS = [
   {
     name: 'get_state',
     description:
-      'Get the GrokCode in-app BrowserPane state: url, title, loading, visible, canGoBack, canGoForward, error. Use this after navigate to verify the page loaded.',
+      'Get the Grok Build Workbench in-app BrowserPane state: url, title, loading, visible, canGoBack, canGoForward, error. Use this after navigate to verify the page loaded.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false }
   },
   {
     name: 'navigate',
     description:
-      'Open a URL in the GrokCode BrowserPane — the in-app browser. Always use this instead of an external browser. Shows the pane if it is hidden. Use http or https only.',
+      'Open a URL in the Grok Build Workbench BrowserPane — the in-app browser. Always use this instead of an external browser. Shows the pane if it is hidden. Use http or https only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -34,23 +34,43 @@ const TOOLS = [
   },
   {
     name: 'back',
-    description: 'Go back in the GrokCode BrowserPane history.',
+    description: 'Go back in the Workbench BrowserPane history.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false }
   },
   {
     name: 'forward',
-    description: 'Go forward in the GrokCode BrowserPane history.',
+    description: 'Go forward in the Workbench BrowserPane history.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false }
   },
   {
     name: 'reload',
-    description: 'Reload the current GrokCode BrowserPane page.',
+    description: 'Reload the current Workbench BrowserPane page.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false }
   },
   {
     name: 'stop',
-    description: 'Stop loading the current GrokCode BrowserPane page.',
+    description: 'Stop loading the current Workbench BrowserPane page.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false }
+  },
+  {
+    name: 'transcribe_youtube',
+    description:
+      'Fetch the official captions/transcript for a YouTube video. Pass a youtube.com, youtu.be, shorts, or embed URL, or an 11-character video id. Use this when the user wants a transcript, summary, or quotes from a YouTube video. Returns title, author, language, and timestamped text. Fails if the video has no captions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description: 'YouTube URL or video id'
+        },
+        lang: {
+          type: 'string',
+          description: 'Preferred caption language code, e.g. en. Defaults to English when available.'
+        }
+      },
+      required: ['url'],
+      additionalProperties: false
+    }
   }
 ]
 
@@ -77,6 +97,12 @@ async function handleTool(name, args) {
   if (name === 'forward') return callApi('POST', '/forward')
   if (name === 'reload') return callApi('POST', '/reload')
   if (name === 'stop') return callApi('POST', '/stop')
+  if (name === 'transcribe_youtube') {
+    return callApi('POST', '/youtube/transcript', {
+      url: String(args?.url ?? ''),
+      lang: args?.lang ? String(args.lang) : undefined
+    })
+  }
   throw new Error(`Unknown tool: ${name}`)
 }
 

@@ -40,10 +40,19 @@ export const SLASH_COMMANDS: SlashDef[] = [
   { id: 'settings', aliases: ['config', 'preferences', 'prefs'], hint: 'Open settings', kind: 'local' },
   { id: 'theme', aliases: ['t'], hint: 'Open appearance settings', kind: 'local' },
   { id: 'docs', aliases: ['howto', 'guides'], hint: 'Open Grok Build docs', kind: 'local' },
-  { id: 'usage', aliases: ['cost'], hint: 'Open usage / billing', kind: 'local' },
+  { id: 'usage', aliases: ['cost'], hint: 'Show usage / billing', kind: 'local' },
   { id: 'login', hint: 'Sign-in help', kind: 'local' },
   { id: 'logout', hint: 'Sign-out help', kind: 'local' },
-  { id: 'quit', aliases: ['exit'], hint: 'Quit GrokCode', kind: 'local' },
+  { id: 'quit', aliases: ['exit'], hint: 'Quit Grok Build Workbench', kind: 'local' },
+  {
+    id: 'transcribe',
+    aliases: ['yt', 'youtube'],
+    hint: 'Transcribe a YouTube video',
+    kind: 'prompt',
+    needsArgs: true,
+    prompt:
+      'Transcribe this YouTube video with the transcribe_youtube tool. Return a readable transcript. URL or video id:'
+  },
   { id: 'imagine', hint: 'Generate an image', kind: 'prompt', needsArgs: true, prompt: 'Generate an image:' },
   { id: 'imagine-video', hint: 'Generate a video', kind: 'prompt', needsArgs: true, prompt: 'Generate a video:' },
   { id: 'remember', hint: 'Save a note to memory', kind: 'prompt', needsArgs: true, prompt: 'Remember this for later:' },
@@ -56,11 +65,11 @@ export const SLASH_COMMANDS: SlashDef[] = [
       'Run or manage this workflow:' },
   { id: 'workflows', hint: 'List workflow runs', kind: 'prompt', prompt:
       'List active and recent workflow runs and their status.' },
-  { id: 'btw', hint: 'Ask an aside without derailing the task', kind: 'prompt', needsArgs: true, prompt:
+  { id: 'btw', hint: 'Ask a side question without steering the task', kind: 'prompt', needsArgs: true, prompt:
       'Side question — answer this without dropping the main task:' },
-  { id: 'feedback', hint: 'Send feedback', kind: 'prompt', prompt: 'User feedback about GrokCode / Grok Build:' },
+  { id: 'feedback', hint: 'Send feedback', kind: 'prompt', prompt: 'User feedback about Grok Build Workbench / Grok Build:' },
   { id: 'doctor', hint: 'Diagnose this session', kind: 'prompt', prompt:
-      'Diagnose this GrokCode / Grok Build session: auth, model, folder, and anything that looks broken. Suggest fixes. Do not edit files.' },
+      'Diagnose this Grok Build Workbench / Grok Build session: auth, model, folder, and anything that looks broken. Suggest fixes. Do not edit files.' },
   { id: 'memory', aliases: ['mem'], hint: 'Browse or toggle memory', kind: 'prompt', prompt:
       'Show or manage cross-session memory for this project.' },
   { id: 'flush', hint: 'Save this session into memory now', kind: 'prompt', prompt:

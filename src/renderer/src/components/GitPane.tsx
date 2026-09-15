@@ -98,6 +98,7 @@ export function GitPane(): React.JSX.Element {
     showGit,
     showBrowser,
     showActivity,
+    showKnowledge,
     setShowGit,
     swapRightPanes,
     selectProject
@@ -113,31 +114,49 @@ export function GitPane(): React.JSX.Element {
 
   const project = projects.find((item) => item.id === activeProjectId) ?? null
   const activeChat = chats.find((item) => item.id === activeChatId) ?? null
-  const otherPanes = showBrowser || showActivity
+  const gitChat = activeChat?.projectId === activeProjectId ? activeChat : null
+  const gitChatId = gitChat?.id ?? null
+  const snapshotForProject =
+    snapshot.projectId === activeProjectId && (snapshot.chatId ?? null) === gitChatId
+      ? snapshot
+      : empty
+  const otherPanes = showBrowser || showActivity || showKnowledge
 
   useEffect(() => {
     if (!showGit) {
       void window.grokcode.setGitActiveProject(null)
       return
     }
-    void window.grokcode.setGitActiveProject(activeProjectId, activeChatId)
+    void window.grokcode.setGitActiveProject(activeProjectId, gitChatId)
     return () => {
       void window.grokcode.setGitActiveProject(null)
     }
-  }, [showGit, activeProjectId, activeChatId])
+  }, [showGit, activeProjectId, gitChatId])
 
   useEffect(() => {
+    setSelected(null)
+    setDiff(null)
+    setError(null)
+    setMessage('')
+    setCreating(false)
     if (!activeProjectId) {
       setSnapshot(empty)
       return
     }
-    void window.grokcode.getGitSnapshot(activeProjectId, activeChatId).then(setSnapshot)
-    return window.grokcode.onGitSnapshot((next) => {
+    let cancelled = false
+    void window.grokcode.getGitSnapshot(activeProjectId, gitChatId).then((next) => {
+      if (!cancelled) setSnapshot(next)
+    })
+    const unsub = window.grokcode.onGitSnapshot((next) => {
       if (next.projectId !== activeProjectId) return
-      if ((next.chatId ?? null) !== (activeChatId ?? null)) return
+      if ((next.chatId ?? null) !== gitChatId) return
       setSnapshot(next)
     })
-  }, [activeProjectId, activeChatId])
+    return () => {
+      cancelled = true
+      unsub()
+    }
+  }, [activeProjectId, gitChatId])
 
   useEffect(() => {
     if (!activeProjectId || !selected) {
@@ -145,9 +164,9 @@ export function GitPane(): React.JSX.Element {
       return
     }
     void window.grokcode
-      .getGitDiff(activeProjectId, selected.path, selected.staged, activeChatId)
+      .getGitDiff(activeProjectId, selected.path, selected.staged, gitChatId)
       .then(setDiff)
-  }, [activeProjectId, activeChatId, selected, snapshot.files])
+  }, [activeProjectId, gitChatId, selected, snapshot.files])
 
   const stagedCount = useMemo(
     () => snapshot.files.filter((file) => file.staged).length,
@@ -170,7 +189,7 @@ export function GitPane(): React.JSX.Element {
   async function checkout(ref: string, detach: boolean): Promise<void> {
     if (!activeProjectId) return
     if (detach && !confirm(`Check out ${ref.slice(0, 8)}? This detaches HEAD.`)) return
-    await run(() => window.grokcode.checkoutGit(activeProjectId, ref, activeChatId))
+    await run(() => window.grokcode.checkoutGit(activeProjectId, ref, gitChatId))
   }
 
   return (
@@ -181,10 +200,12 @@ export function GitPane(): React.JSX.Element {
           <div className="no-drag min-w-0 flex-1">
             <h1 className="text-[13px] font-semibold tracking-tight">Git</h1>
             <p className="mt-px truncate font-mono text-[11px] text-muted">
-              {snapshot.available
-                ? `${activeChat?.worktreeBranch ? 'isolated · ' : ''}${
-                    snapshot.detached ? 'detached' : snapshot.branch ?? '—'
-                  } · ${snapshot.dirtyCount} change${snapshot.dirtyCount === 1 ? '' : 's'}`
+              {snapshotForProject.available
+                ? `${project?.name ? `${project.name} · ` : ''}${
+                    gitChat?.worktreeBranch ? 'isolated · ' : ''
+                  }${snapshotForProject.detached ? 'detached' : snapshotForProject.branch ?? '—'} · ${
+                    snapshotForProject.dirtyCount
+                  } change${snapshotForProject.dirtyCount === 1 ? '' : 's'}`
                 : project?.name ?? 'No project'}
             </p>
           </div>
@@ -193,7 +214,7 @@ export function GitPane(): React.JSX.Element {
               className="rounded-md px-2 py-1 text-[11px] text-muted hover:bg-raised hover:text-ink active:translate-y-px"
               onClick={() => {
                 if (activeProjectId)
-                  void window.grokcode.getGitSnapshot(activeProjectId, activeChatId).then(setSnapshot)
+                  void window.grokcode.getGitSnapshot(activeProjectId, gitChatId).then(setSnapshot)
               }}
             >
               Refresh
@@ -208,9 +229,11 @@ export function GitPane(): React.JSX.Element {
         </div>
       </header>
 
-      {!activeProjectId || !snapshot.available ? (
+      {!activeProjectId || !snapshotForProject.available ? (
         <div className="flex flex-1 items-center justify-center px-6 text-center text-[12px] text-muted">
-          {reasonCopy(snapshot)}
+          {snapshotForProject.projectId === activeProjectId || !activeProjectId
+            ? reasonCopy(snapshotForProject)
+            : null}
         </div>
       ) : (
         <div className="no-drag min-h-0 flex-1 overflow-y-auto">
@@ -242,7 +265,7 @@ export function GitPane(): React.JSX.Element {
                     const result = await window.grokcode.createGitBranch(
                       activeProjectId,
                       branchName,
-                      activeChatId
+                      gitChatId
                     )
                     if (result.ok) {
                       setBranchName('')
@@ -290,17 +313,17 @@ export function GitPane(): React.JSX.Element {
                     selected={selected}
                     onSelect={setSelected}
                     onStage={() =>
-                      void run(() => window.grokcode.stageGitPath(activeProjectId, file.path, activeChatId))
+                      void run(() => window.grokcode.stageGitPath(activeProjectId, file.path, gitChatId))
                     }
                     onUnstage={() =>
                       void run(() =>
-                        window.grokcode.unstageGitPath(activeProjectId, file.path, activeChatId)
+                        window.grokcode.unstageGitPath(activeProjectId, file.path, gitChatId)
                       )
                     }
                     onDiscard={() => {
                       if (!confirm(`Discard ${file.path}?`)) return
                       void run(() =>
-                        window.grokcode.discardGitPath(activeProjectId, file.path, activeChatId)
+                        window.grokcode.discardGitPath(activeProjectId, file.path, gitChatId)
                       )
                     }}
                   />
@@ -328,7 +351,7 @@ export function GitPane(): React.JSX.Element {
               disabled={busy || stagedCount === 0 || !message.trim()}
               onClick={() =>
                 void run(async () => {
-                  const result = await window.grokcode.commitGit(activeProjectId, message, activeChatId)
+                  const result = await window.grokcode.commitGit(activeProjectId, message, gitChatId)
                   if (result.ok) setMessage('')
                   return result
                 })

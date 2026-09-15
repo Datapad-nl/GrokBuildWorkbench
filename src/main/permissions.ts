@@ -32,6 +32,7 @@ type PendingAsk = {
 
 const sessionModes = new Map<string, PermissionMode>()
 const sessionChats = new Map<string, string>()
+const asideSessions = new Set<string>()
 const pending = new Map<string, PendingAsk>()
 const promptListeners = new Set<(request: PermissionRequest) => void>()
 const settleListeners = new Set<(request: PermissionRequest) => void>()
@@ -55,6 +56,14 @@ export function modeForSession(sessionId: string): PermissionMode {
 
 export function chatIdForSession(sessionId: string): string | null {
   return sessionChats.get(sessionId) ?? null
+}
+
+export function markAsideSession(sessionId: string): void {
+  asideSessions.add(sessionId)
+}
+
+export function unmarkAsideSession(sessionId: string): void {
+  asideSessions.delete(sessionId)
 }
 
 export function fallbackSessionId(): string {
@@ -94,6 +103,59 @@ export function noteDeniedPermission(sessionId: string, params: PermissionParams
     toolKind: params.toolCall?.kind ?? params.toolCall?.name ?? null
   }
   for (const listener of denyListeners) listener(request)
+}
+
+function toolVariant(input: unknown): string {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return ''
+  return String((input as { variant?: unknown }).variant ?? '')
+}
+
+function isExactPlanGate(value: string, gate: 'exit' | 'enter'): boolean {
+  const normalized = value.trim().toLowerCase().replace(/[_-]+/g, ' ')
+  if (gate === 'exit') {
+    return (
+      normalized === 'exit plan mode' ||
+      normalized === 'plan: exit' ||
+      normalized === 'plan exit' ||
+      normalized === 'exit plan'
+    )
+  }
+  return (
+    normalized === 'enter plan mode' ||
+    normalized === 'plan: enter' ||
+    normalized === 'plan enter' ||
+    normalized === 'enter plan'
+  )
+}
+
+export function isExitPlanTool(params: PermissionParams): boolean {
+  const tool = params.toolCall
+  return [tool?.name, tool?.title, tool?.kind, toolVariant(tool?.rawInput)].some((value) =>
+    isExactPlanGate(value ?? '', 'exit')
+  )
+}
+
+export function isEnterPlanTool(params: PermissionParams): boolean {
+  const tool = params.toolCall
+  return [tool?.name, tool?.title, tool?.kind, toolVariant(tool?.rawInput)].some((value) =>
+    isExactPlanGate(value ?? '', 'enter')
+  )
+}
+
+export function isPlanGateTool(params: PermissionParams): boolean {
+  return isExitPlanTool(params) || isEnterPlanTool(params)
+}
+
+export function resolveChatPlanApproval(chatId: string, decision: 'allow' | 'deny'): boolean {
+  let found = false
+  for (const item of [...pending.values()]) {
+    const blob = `${item.request.title} ${item.request.toolKind ?? ''}`.toLowerCase()
+    if (item.request.chatId !== chatId) continue
+    if (!/exit_plan_mode|enter_plan_mode|exit plan|plan: exit/.test(blob)) continue
+    item.resolve(outcomeFor(item.options, decision))
+    found = true
+  }
+  return found
 }
 
 export function isMutatingTool(kind?: string, title?: string, name?: string): boolean {
@@ -147,6 +209,14 @@ function requestDetail(params: PermissionParams): string | null {
 }
 
 export function decidePermission(mode: PermissionMode, params: PermissionParams): 'allow' | 'deny' | 'ask' {
+  const sessionId = params.sessionId || fallbackSessionId()
+  if (sessionId && asideSessions.has(sessionId)) {
+    const tool = params.toolCall
+    if (isPlanGateTool(params) || isMutatingTool(tool?.kind, tool?.title, tool?.name)) return 'deny'
+    return 'allow'
+  }
+  if (isExitPlanTool(params)) return 'allow'
+  if (isEnterPlanTool(params)) return mode === 'plan' ? 'allow' : 'ask'
   if (mode === 'accept') return 'allow'
   if (mode === 'ask') return 'ask'
   const tool = params.toolCall

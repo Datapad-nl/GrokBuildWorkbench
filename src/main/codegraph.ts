@@ -1,8 +1,8 @@
-import { spawn } from 'child_process'
+import { type ChildProcess, execFileSync, spawn } from 'child_process'
 import { existsSync } from 'fs'
 import { access, readdir, readFile, stat } from 'fs/promises'
-import { homedir } from 'os'
-import { delimiter, join } from 'path'
+import { homedir, tmpdir } from 'os'
+import { basename, delimiter, join, resolve } from 'path'
 import type { IndexState, OrientationCard, Project, ProjectIndex } from '../shared/types'
 
 const INSTALL_SCRIPT = 'https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh'
@@ -21,7 +21,8 @@ const IGNORE = new Set([
   '.venv',
   'venv',
   '.turbo',
-  'coverage'
+  'coverage',
+  'knowledge'
 ])
 
 type StatusJson = {
@@ -36,6 +37,34 @@ type RunResult = { code: number; stdout: string; stderr: string }
 const jobs = new Map<string, Promise<void>>()
 const cache = new Map<string, ProjectIndex>()
 const listeners = new Set<(index: ProjectIndex) => void>()
+const children = new Set<ChildProcess>()
+const BLOCKED_ROOTS = new Set([
+  '/',
+  '/Users',
+  '/home',
+  '/Volumes',
+  '/System',
+  '/Applications',
+  '/Library',
+  '/opt',
+  '/usr',
+  '/var',
+  '/private'
+])
+
+export function isUnsafeProjectPath(path: string): boolean {
+  const resolved = resolve(path.trim())
+  if (BLOCKED_ROOTS.has(resolved)) return true
+  if (resolved === homedir()) return true
+  const parts = resolved.split('/').filter(Boolean)
+  if (parts[0] === 'Volumes' && parts.length <= 2) return true
+  if (parts[0] === 'Users' && parts.length <= 2) return true
+  // /btw asides use a throwaway cwd; never import or index it as a project
+  if (basename(resolved).startsWith('grokcode-btw-')) return true
+  const tmp = resolve(tmpdir())
+  if (resolved === tmp || resolved.startsWith(`${tmp}/`) || resolved.startsWith(`${tmp}\\`)) return true
+  return false
+}
 
 let resolvedBin: string | null | undefined
 
@@ -115,6 +144,7 @@ function run(
       env: process.env,
       stdio: ['ignore', 'pipe', 'pipe']
     })
+    children.add(child)
     let stdout = ''
     let stderr = ''
     child.stdout.on('data', (chunk: Buffer) => {
@@ -123,16 +153,28 @@ function run(
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString()
     })
+    let force: ReturnType<typeof setTimeout> | null = null
     const timer = setTimeout(() => {
       child.kill('SIGTERM')
+      force = setTimeout(() => {
+        try {
+          child.kill('SIGKILL')
+        } catch {
+          // gone
+        }
+      }, 2_000)
       reject(new Error(`${command} timed out`))
     }, opts.timeoutMs)
     child.on('error', (error) => {
       clearTimeout(timer)
+      if (force) clearTimeout(force)
+      children.delete(child)
       reject(error)
     })
     child.on('close', (code) => {
       clearTimeout(timer)
+      if (force) clearTimeout(force)
+      children.delete(child)
       resolve({ code: code ?? 1, stdout, stderr })
     })
   })
@@ -306,8 +348,47 @@ async function runIndex(projectId: string, path: string): Promise<void> {
   emit(fromStatus(projectId, next, 'indexed'))
 }
 
+export function stopCodegraphJobs(): void {
+  for (const child of children) {
+    try {
+      child.kill('SIGKILL')
+    } catch {
+      // gone
+    }
+  }
+  children.clear()
+}
+
+export function killOrphanCodegraphInits(): void {
+  try {
+    const out = execFileSync('pgrep', ['-f', 'codegraph.js init'], { encoding: 'utf8' })
+    for (const line of out.trim().split('\n')) {
+      const pid = Number(line)
+      if (!pid) continue
+      try {
+        process.kill(pid, 'SIGKILL')
+      } catch {
+        // gone
+      }
+    }
+  } catch {
+    // none running
+  }
+}
+
 export function queueIndex(projectId: string, path: string | null | undefined): void {
   if (!path) return
+  if (isUnsafeProjectPath(path)) {
+    emit({
+      projectId,
+      state: 'error',
+      error: 'This folder is too large to index. Attach a project directory, not your home folder or a whole disk.',
+      fileCount: null,
+      nodeCount: null,
+      languages: []
+    })
+    return
+  }
   const existing = jobs.get(path)
   if (existing) return
   emit({

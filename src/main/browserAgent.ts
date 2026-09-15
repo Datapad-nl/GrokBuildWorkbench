@@ -12,13 +12,17 @@ import {
   requestShowBrowser,
   stopBrowser
 } from './browser'
+import { transcribeYoutube } from './youtube'
 
 export const BROWSER_SESSION_RULE = [
-  'You are inside GrokCode.',
-  'Open every web page in the GrokCode BrowserPane using the `browser` MCP (`navigate`).',
+  'You are inside Grok Build Workbench.',
+  'Open every web page in the Workbench BrowserPane using the `browser` MCP (`navigate`).',
   'That pane is the in-app browser: you can drive it immediately and verify your own UI work.',
   'Never launch Chrome, Safari, Playwright, Puppeteer, `open`, `xdg-open`, `start`, or any other external browser.',
-  'After a UI change, navigate to the local URL and call `get_state` to confirm the page loaded.'
+  'After a UI change, navigate to the local URL and call `get_state` to confirm the page loaded.',
+  'When the user shares a YouTube URL or asks to transcribe, summarize, or quote a YouTube video, call `transcribe_youtube` with that URL.',
+  'Do not scrape the watch page for captions unless that tool fails.',
+  'If you start a long-running dev server (`next dev`, vite, webpack) in a Grok Build Workbench worktree, stop it when the task is done. Do not leave it running in the background.'
 ].join(' ')
 
 export type AcpMcpServer = {
@@ -58,7 +62,7 @@ function mcpScriptPath(): string {
   if (existsSync(fromSrc)) return fromSrc
   const fromOut = join(__dirname, 'browser-mcp.mjs')
   if (existsSync(fromOut)) return fromOut
-  throw new Error('GrokCode browser MCP script is missing')
+  throw new Error('Workbench browser MCP script is missing')
 }
 
 async function handle(
@@ -114,6 +118,21 @@ async function handle(
   }
   if (method === 'POST' && path === '/stop') {
     json(res, 200, stopBrowser())
+    return
+  }
+
+  if (method === 'POST' && path === '/youtube/transcript') {
+    let urlInput = ''
+    let lang: string | undefined
+    try {
+      const parsed = JSON.parse(await readBody(req)) as { url?: unknown; lang?: unknown }
+      urlInput = typeof parsed.url === 'string' ? parsed.url : ''
+      lang = typeof parsed.lang === 'string' ? parsed.lang : undefined
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' })
+      return
+    }
+    json(res, 200, await transcribeYoutube(urlInput, lang))
     return
   }
 

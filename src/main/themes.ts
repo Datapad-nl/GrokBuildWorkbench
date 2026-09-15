@@ -153,7 +153,7 @@ export async function importThemeFile(): Promise<{
   const options = {
     title: 'Load theme',
     filters: [
-      { name: 'GrokCode Theme', extensions: ['json', 'groktheme'] },
+      { name: 'Grok Build Workbench Theme', extensions: ['json', 'groktheme'] },
       { name: 'All files', extensions: ['*'] }
     ],
     properties: ['openFile' as const]
@@ -184,7 +184,7 @@ export async function exportThemeFile(id: string): Promise<boolean> {
     title: 'Save theme',
     defaultPath: `${theme.id}.json`,
     filters: [
-      { name: 'GrokCode Theme', extensions: ['json', 'groktheme'] },
+      { name: 'Grok Build Workbench Theme', extensions: ['json', 'groktheme'] },
       { name: 'JSON', extensions: ['json'] }
     ]
   }

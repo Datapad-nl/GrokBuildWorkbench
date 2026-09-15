@@ -1,15 +1,26 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
+import icon from '../../resources/icon.png?asset'
 import { startBrowserAgentServer } from './browserAgent'
 import { attachBrowser, navigateBrowser, prepareBrowser, sanitizeUrl } from './browser'
-import { augmentPath } from './codegraph'
+import { augmentPath, killOrphanCodegraphInits, stopCodegraphJobs } from './codegraph'
 import { loadDotEnv } from './env'
 import { stopGitWatchers } from './git'
+import { stopKnowledgeWatchers } from './knowledge'
+import {
+  startWorktreeReaper,
+  stopWorktreeReaper,
+  sweepWorktreeProcesses,
+  sweepWorktreeProcessesSync
+} from './worktreeProcs'
 import { registerIpc } from './ipc'
-import { ensureStore, syncGrokSessions } from './store'
+import { ensureStore, purgeUnsafeProjects, syncGrokSessions } from './store'
 import { applyWindowChrome, getThemeState } from './themes'
+import { attachVoiceProtocol, ensureMicAccess, getMicAccess, registerVoiceScheme } from './voice'
 import { loadWindowState, trackWindowState } from './windowState'
+
+registerVoiceScheme()
 
 if (is.dev) {
   app.commandLine.appendSwitch('remote-debugging-port', '9333')
@@ -26,7 +37,8 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#141414',
-    title: 'GrokCode',
+    title: 'Grok Build Workbench',
+    icon,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 18 },
     webPreferences: {
@@ -37,6 +49,16 @@ function createWindow(): void {
     }
   })
 
+  mainWindow.webContents.session.setPermissionCheckHandler((_contents, permission) => {
+    return permission === 'media' || permission === 'audioCapture' || permission === 'microphone'
+  })
+  mainWindow.webContents.session.setPermissionRequestHandler((_contents, permission, callback) => {
+    const mic =
+      permission === 'media' || permission === 'audioCapture' || permission === 'microphone'
+    callback(mic)
+    if (mic && getMicAccess() !== 'granted') void ensureMicAccess()
+  })
+
   trackWindowState(mainWindow)
 
   mainWindow.on('ready-to-show', () => {
@@ -44,13 +66,35 @@ function createWindow(): void {
     mainWindow.show()
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
-    const url = sanitizeUrl(details.url)
-    if (url) {
-      void navigateBrowser(url)
-    } else {
-      void shell.openExternal(details.url)
+  function isAppUrl(url: string): boolean {
+    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+      return url.startsWith(process.env['ELECTRON_RENDERER_URL'])
     }
+    try {
+      return new URL(url).protocol === 'file:'
+    } catch {
+      return false
+    }
+  }
+
+  function openInAppBrowser(url: string): void {
+    const clean = sanitizeUrl(url)
+    if (clean) {
+      void navigateBrowser(clean)
+      return
+    }
+    void shell.openExternal(url)
+  }
+
+  // Same-window <a> clicks replace the renderer unless we cancel them.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (isAppUrl(url)) return
+    event.preventDefault()
+    openInAppBrowser(url)
+  })
+
+  mainWindow.webContents.setWindowOpenHandler((details) => {
+    openInAppBrowser(details.url)
     return { action: 'deny' }
   })
 
@@ -66,15 +110,25 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   loadDotEnv()
   augmentPath()
+  app.setName('Grok Build Workbench')
   electronApp.setAppUserModelId('com.datapad.grokcode')
+  if (process.platform === 'darwin') {
+    app.dock?.setIcon(icon)
+  }
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
   await ensureStore()
+  await purgeUnsafeProjects()
   await syncGrokSessions()
+  attachVoiceProtocol()
+  void ensureMicAccess()
   await prepareBrowser()
   await startBrowserAgentServer()
   registerIpc()
+  killOrphanCodegraphInits()
+  void sweepWorktreeProcesses()
+  startWorktreeReaper()
   createWindow()
   const { active } = await getThemeState()
   applyWindowChrome(active)
@@ -85,7 +139,12 @@ app.whenReady().then(async () => {
 })
 
 app.on('before-quit', () => {
+  stopWorktreeReaper()
+  stopCodegraphJobs()
+  killOrphanCodegraphInits()
   stopGitWatchers()
+  stopKnowledgeWatchers()
+  sweepWorktreeProcessesSync()
 })
 
 app.on('window-all-closed', () => {

@@ -1,0 +1,28 @@
+---
+tags:
+  - grokcode
+  - generated
+  - area
+grokcode_generated: true
+---
+
+# themes
+
+> This note is maintained by Grok Build Workbench. Add your own writing in `notes/`.
+
+Top-level area `themes/`.
+
+## Contains
+
+- `themes/brass-console.json`
+- `themes/signal-night.json`
+- `themes/warm-atelier.json`
+
+## Related
+
+- [[Architecture]]
+- [[Overview]]
+- [[design-studies]]
+- [[resources]]
+- [[scripts]]
+- [[src]]

@@ -1,11 +1,14 @@
 {
-  "name": "grokcode",
+  "name": "grok-build-workbench",
   "version": "0.1.0",
   "private": true,
-  "description": "Desktop coding assistant with project-scoped Grok chats",
+  "description": "Unofficial desktop workbench for Grok Build",
   "main": "./out/main/index.js",
   "author": "Datapad",
+  "license": "MIT",
   "scripts": {
+    "predev": "node scripts/register-mac-app.mjs",
+    "postinstall": "node scripts/register-mac-app.mjs",
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
     "build": "electron-vite build",
@@ -16,6 +19,7 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
+    "@huggingface/transformers": "^4.2.0",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "react-markdown": "^10.1.0",

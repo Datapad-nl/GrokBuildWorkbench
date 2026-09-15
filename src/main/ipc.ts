@@ -7,7 +7,10 @@ import type {
   FileMention,
   IndexEvent,
   PermissionMode,
-  UpdateProjectInput
+  PlanVerdict,
+  UpdateProjectInput,
+  UserQuestionAnswer,
+  VoiceSettings
 } from '../shared/types'
 import { normalizePermissionMode } from '../shared/types'
 import {
@@ -17,6 +20,7 @@ import {
   startActivityBridge
 } from './activity'
 import {
+  cancelBrowserAnnotate,
   clearBrowserData,
   getBrowserState,
   goBack,
@@ -26,26 +30,46 @@ import {
   sanitizeUrl,
   setBrowserBounds,
   setBrowserVisible,
+  startBrowserAnnotate,
   stopBrowser
 } from './browser'
+import { transcribeYoutube } from './youtube'
 import { buildOrientation, collectIndexes, onIndexChange, queueIndex } from './codegraph'
+import {
+  getKnowledgeNote,
+  getKnowledgeSnapshot,
+  maintainVault,
+  maintainVaultForProjectId,
+  openKnowledgeVault,
+  rebuildKnowledge,
+  revealKnowledgeVault,
+  setKnowledgeActiveProject,
+  syncKnowledgeWatchers
+} from './knowledge'
 import { searchProjectFiles } from './files'
 import { deleteAllCheckpoints } from './checkpoints'
 import {
   appendUserMessage,
   isStreaming,
+  loadChat,
   onChatLive,
   rewindChat,
   setChatMode,
+  settleChatPlan,
+  drainAsideSteers,
+  startAside,
   streamAssistant,
   stopStream
 } from './grok'
+import { fetchUsage } from './acp'
 import {
   onPermissionDenied,
   onPermissionPrompt,
   onPermissionSettled,
   resolvePermission
 } from './permissions'
+import { deleteProjectIntake, maybeStartProjectIntake, scheduleProjectIntake } from './intake'
+import { onUserQuestionPrompt, onUserQuestionSettled, resolveUserQuestion } from './questions'
 import {
   createChat,
   createProject,
@@ -59,6 +83,14 @@ import {
   updateProject,
   updateSettings
 } from './store'
+import {
+  ensureMicAccess,
+  ensureVoiceModel,
+  getMicAccess,
+  getVoiceModelStatus,
+  onVoiceModelStatus,
+  openMicPrivacySettings
+} from './voice'
 import {
   checkoutGit,
   chatWorkingDir,
@@ -89,6 +121,26 @@ function emit(event: ChatEvent): void {
   }
 }
 
+const pendingDeltas = new Map<string, string>()
+let deltaTimer: ReturnType<typeof setTimeout> | null = null
+
+function flushDeltas(): void {
+  if (deltaTimer) {
+    clearTimeout(deltaTimer)
+    deltaTimer = null
+  }
+  for (const [chatId, text] of pendingDeltas) {
+    if (text) emit({ type: 'delta', chatId, text })
+  }
+  pendingDeltas.clear()
+}
+
+function emitDelta(chatId: string, text: string): void {
+  pendingDeltas.set(chatId, (pendingDeltas.get(chatId) ?? '') + text)
+  if (deltaTimer) return
+  deltaTimer = setTimeout(flushDeltas, 50)
+}
+
 function emitIndex(event: IndexEvent): void {
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send('index:event', event)
@@ -99,6 +151,8 @@ export function registerIpc(): void {
   startActivityBridge()
   onIndexChange((index) => {
     emitIndex({ type: 'status', projectId: index.projectId, index })
+    if (index.state === 'indexing' || index.state === 'installing' || index.state === 'no-folder') return
+    void maintainVaultForProjectId(index.projectId)
   })
   onChatLive((event) => emit(event))
   onPermissionPrompt((request) => {
@@ -133,6 +187,12 @@ export function registerIpc(): void {
       requestId: request.requestId
     })
   })
+  onUserQuestionPrompt((request) => {
+    emit({ type: 'question', chatId: request.chatId, request })
+  })
+  onUserQuestionSettled((request) => {
+    emit({ type: 'question-clear', chatId: request.chatId, requestId: request.requestId })
+  })
 
   ipcMain.handle('workspace:get', async () => {
     const current = await snapshot()
@@ -144,12 +204,17 @@ export function registerIpc(): void {
     const project = await createProject(name, input.path ?? null, input.color)
     const chat = await createChat(project.id)
     void syncGitWatchers()
+    void syncKnowledgeWatchers()
+    void maintainVault(project)
+    scheduleProjectIntake(project, chat.id)
     return { project, chat }
   })
 
   ipcMain.handle('project:update', async (_event, input: UpdateProjectInput) => {
     const project = await updateProject(input)
     void syncGitWatchers()
+    void syncKnowledgeWatchers()
+    void maintainVault(project)
     return project
   })
 
@@ -163,7 +228,9 @@ export function registerIpc(): void {
       }
     }
     await deleteProject(projectId)
+    await deleteProjectIntake(projectId)
     void syncGitWatchers()
+    void syncKnowledgeWatchers()
     return snapshot()
   })
 
@@ -203,12 +270,19 @@ export function registerIpc(): void {
     return result.filePaths[0]
   })
 
+  ipcMain.handle('project:ensureIntake', async (_event, input: { projectId: string; chatId: string }) => {
+    void maybeStartProjectIntake(input.projectId, input.chatId)
+    return true
+  })
+
   ipcMain.handle('chat:create', async (_event, projectId: string) => {
-    return createChat(projectId)
+    const chat = await createChat(projectId)
+    void maybeStartProjectIntake(projectId, chat.id)
+    return chat
   })
 
   ipcMain.handle('chat:get', async (_event, chatId: string) => {
-    return getChat(chatId)
+    return loadChat(chatId)
   })
 
   ipcMain.handle('chat:delete', async (_event, chatId: string) => {
@@ -240,8 +314,18 @@ export function registerIpc(): void {
         mentions?: FileMention[]
       }
     ) => {
+    const projects = await listProjects()
     if (isStreaming(input.chatId)) {
-      stopStream(input.chatId)
+      const current = await getChat(input.chatId)
+      const project = projects.find((item) => item.id === current.projectId)
+      const started = await startAside(
+        input.chatId,
+        project,
+        input.content,
+        input.attachments ?? [],
+        input.mentions ?? []
+      )
+      return started
     }
     const chat = await appendUserMessage(
       input.chatId,
@@ -249,21 +333,24 @@ export function registerIpc(): void {
       input.attachments ?? [],
       input.mentions ?? []
     )
-    const projects = await listProjects()
     const project = projects.find((item) => item.id === chat.projectId)
 
     void streamAssistant(chat, project, (text) => {
-      emit({ type: 'delta', chatId: input.chatId, text })
+      emitDelta(input.chatId, text)
     })
       .then((done) => {
+        flushDeltas()
         if (!done) return
         emit({ type: 'done', chatId: input.chatId, chat: done })
+        drainAsideSteers(input.chatId, project)
       })
       .catch((error: unknown) => {
+        flushDeltas()
         if (!isStreaming(input.chatId)) {
           const message = error instanceof Error ? error.message : 'Grok request failed'
           emit({ type: 'error', chatId: input.chatId, error: message })
         }
+        drainAsideSteers(input.chatId, project)
       })
 
     return chat
@@ -271,6 +358,9 @@ export function registerIpc(): void {
 
   ipcMain.handle('chat:stop', async (_event, chatId: string) => {
     stopStream(chatId)
+    flushDeltas()
+    const chat = await getChat(chatId).catch(() => null)
+    if (chat) emit({ type: 'done', chatId, chat })
     return true
   })
 
@@ -286,6 +376,37 @@ export function registerIpc(): void {
     }
   )
 
+  ipcMain.handle(
+    'chat:resolveQuestion',
+    async (
+      _event,
+      input:
+        | { requestId: string; type: 'skip' }
+        | { requestId: string; type: 'submit'; answers: UserQuestionAnswer[] }
+    ) => {
+      if (input.type === 'submit') {
+        return resolveUserQuestion(input.requestId, { type: 'submit', answers: input.answers })
+      }
+      return resolveUserQuestion(input.requestId, { type: 'skip' })
+    }
+  )
+
+  ipcMain.handle(
+    'chat:resolvePlanApproval',
+    async (
+      _event,
+      input: { chatId: string; decision?: 'allow' | 'deny' | PlanVerdict }
+    ) => {
+      const verdict: PlanVerdict =
+        input.decision === 'deny' || input.decision === 'abandon'
+          ? 'abandon'
+          : input.decision === 'revise'
+            ? 'revise'
+            : 'approve'
+      return settleChatPlan(input.chatId, verdict)
+    }
+  )
+
   ipcMain.handle('chat:rewind', async (_event, input: { chatId: string; checkpointId: string }) => {
     const chat = await getChat(input.chatId)
     const projects = await listProjects()
@@ -298,8 +419,24 @@ export function registerIpc(): void {
     return settings
   })
 
-  ipcMain.handle('settings:set', async (_event, input: { apiKey?: string; model?: string }) => {
-    return updateSettings(input)
+  ipcMain.handle(
+    'settings:set',
+    async (_event, input: { apiKey?: string; model?: string; voice?: Partial<VoiceSettings> }) => {
+      return updateSettings(input)
+    }
+  )
+
+  ipcMain.handle('voice:modelStatus', () => getVoiceModelStatus())
+  ipcMain.handle('voice:ensureModel', async () => ensureVoiceModel())
+  ipcMain.handle('voice:ensureMic', async () => ensureMicAccess())
+  ipcMain.handle('voice:micAccess', () => getMicAccess())
+  ipcMain.handle('voice:openMicSettings', () => {
+    openMicPrivacySettings()
+  })
+  onVoiceModelStatus((payload) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send('voice:modelStatus', payload)
+    }
   })
 
   ipcMain.handle('theme:state', async () => {
@@ -343,6 +480,11 @@ export function registerIpc(): void {
   ipcMain.handle('browser:reload', () => reloadBrowser())
   ipcMain.handle('browser:stop', () => stopBrowser())
   ipcMain.handle('browser:clearData', () => clearBrowserData())
+  ipcMain.handle('browser:annotateStart', () => startBrowserAnnotate())
+  ipcMain.handle('browser:annotateCancel', () => cancelBrowserAnnotate())
+  ipcMain.handle('youtube:transcribe', (_event, input: { url?: string; lang?: string }) =>
+    transcribeYoutube(String(input?.url ?? ''), input?.lang)
+  )
 
   ipcMain.handle('git:snapshot', async (_event, input: { projectId: string; chatId?: string | null }) => {
     return getGitSnapshot(String(input?.projectId ?? ''), input?.chatId)
@@ -406,6 +548,29 @@ export function registerIpc(): void {
   )
 
   void syncGitWatchers()
+  void syncKnowledgeWatchers()
+
+  ipcMain.handle('knowledge:snapshot', async (_event, projectId: string) => {
+    return getKnowledgeSnapshot(String(projectId ?? ''))
+  })
+  ipcMain.handle('knowledge:rebuild', async (_event, projectId: string) => {
+    return rebuildKnowledge(String(projectId ?? ''))
+  })
+  ipcMain.handle('knowledge:note', async (_event, input: { projectId: string; path: string }) => {
+    return getKnowledgeNote(String(input?.projectId ?? ''), String(input?.path ?? ''))
+  })
+  ipcMain.handle('knowledge:openVault', async (_event, projectId: string) => {
+    return openKnowledgeVault(String(projectId ?? ''))
+  })
+  ipcMain.handle('knowledge:revealVault', async (_event, projectId: string) => {
+    return revealKnowledgeVault(String(projectId ?? ''))
+  })
+  ipcMain.handle('knowledge:setActive', async (_event, projectId: string | null) => {
+    await setKnowledgeActiveProject(projectId ? String(projectId) : null)
+    return true
+  })
+
+  ipcMain.handle('usage:get', async () => fetchUsage())
 
   ipcMain.handle('app:quit', () => {
     app.quit()

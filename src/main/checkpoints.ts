@@ -31,10 +31,10 @@ function snapDirFor(chatId: string, checkpointId: string): string {
 function gitEnv(indexFile?: string): NodeJS.ProcessEnv {
   return {
     ...process.env,
-    GIT_AUTHOR_NAME: 'GrokCode',
-    GIT_AUTHOR_EMAIL: 'grokcode@local',
-    GIT_COMMITTER_NAME: 'GrokCode',
-    GIT_COMMITTER_EMAIL: 'grokcode@local',
+    GIT_AUTHOR_NAME: 'Grok Build Workbench',
+    GIT_AUTHOR_EMAIL: 'workbench@local',
+    GIT_COMMITTER_NAME: 'Grok Build Workbench',
+    GIT_COMMITTER_EMAIL: 'workbench@local',
     ...(indexFile ? { GIT_INDEX_FILE: indexFile } : {})
   }
 }

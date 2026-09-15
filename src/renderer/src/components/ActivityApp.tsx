@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ActivityEvent, ActivitySnapshot } from '../../../shared/types'
 import { useWorkspace } from '../workspace'
 import { CodeDiff } from './CodeDiff'
@@ -23,14 +23,21 @@ function kindLabel(event: ActivityEvent): string {
 const EXCERPT_LINES = 6
 const EXCERPT_CHARS = 320
 
-function detailExcerpt(text: string): { preview: string; expandable: boolean } {
+function detailExcerpt(
+  text: string,
+  fromEnd: boolean
+): { preview: string; expandable: boolean } {
   const normalized = text.replace(/\s+$/u, '')
   const lines = normalized.split('\n')
   if (lines.length > EXCERPT_LINES) {
-    return { preview: lines.slice(0, EXCERPT_LINES).join('\n'), expandable: true }
+    const slice = fromEnd ? lines.slice(-EXCERPT_LINES) : lines.slice(0, EXCERPT_LINES)
+    return { preview: slice.join('\n'), expandable: true }
   }
   if (normalized.length > EXCERPT_CHARS) {
-    return { preview: normalized.slice(0, EXCERPT_CHARS).trimEnd(), expandable: true }
+    const preview = fromEnd
+      ? normalized.slice(-EXCERPT_CHARS).trimStart()
+      : normalized.slice(0, EXCERPT_CHARS).trimEnd()
+    return { preview, expandable: true }
   }
   return { preview: normalized, expandable: false }
 }
@@ -38,15 +45,19 @@ function detailExcerpt(text: string): { preview: string; expandable: boolean } {
 function EventDetail({
   text,
   kind,
-  tool
+  tool,
+  live
 }: {
   text: string
   kind: ActivityEvent['kind']
   tool: boolean
+  live: boolean
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
-  const { preview, expandable } = useMemo(() => detailExcerpt(text), [text])
-  const shown = open || !expandable ? text : preview
+  const fromEnd = kind === 'thought'
+  const { preview, expandable } = useMemo(() => detailExcerpt(text, fromEnd), [text, fromEnd])
+  const expanded = open || live || !expandable
+  const shown = expanded ? text : preview
 
   function toggle(): void {
     if (!expandable) return
@@ -68,7 +79,7 @@ function EventDetail({
           onClick={toggle}
           role={expandable ? 'button' : undefined}
           tabIndex={expandable ? 0 : undefined}
-          aria-expanded={expandable ? open : undefined}
+          aria-expanded={expandable ? expanded : undefined}
           onKeyDown={(event) => {
             if (!expandable) return
             if (event.key === 'Enter' || event.key === ' ') {
@@ -77,14 +88,21 @@ function EventDetail({
             }
           }}
         >
+          {expandable && !expanded && fromEnd ? '…' : null}
           {shown}
-          {expandable && !open ? '…' : null}
+          {expandable && !expanded && !fromEnd ? '…' : null}
         </pre>
-        {expandable && !open && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-7 bg-gradient-to-t from-sidebar to-transparent" />
+        {expandable && !expanded && (
+          <div
+            className={`pointer-events-none absolute inset-x-0 h-7 ${
+              fromEnd
+                ? 'top-0 bg-gradient-to-b from-sidebar to-transparent'
+                : 'bottom-0 bg-gradient-to-t from-sidebar to-transparent'
+            }`}
+          />
         )}
       </div>
-      {expandable && (
+      {expandable && !live && (
         <button
           type="button"
           className="mt-1 text-[11px] text-muted hover:text-ink active:translate-y-px"
@@ -117,7 +135,9 @@ function EventRow({ event }: { event: ActivityEvent }): React.JSX.Element {
       {event.kind !== 'thought' && (
         <div className="mt-1 text-[13px] font-medium leading-5 text-ink">{event.title}</div>
       )}
-      {event.detail && <EventDetail text={event.detail} kind={event.kind} tool={tool} />}
+      {event.detail && (
+        <EventDetail text={event.detail} kind={event.kind} tool={tool} live={running} />
+      )}
       {event.diffs?.map((diff, index) => (
         <CodeDiff key={`${diff.path}:${index}`} diff={diff} />
       ))}
@@ -126,12 +146,28 @@ function EventRow({ event }: { event: ActivityEvent }): React.JSX.Element {
 }
 
 export function ActivityApp(): React.JSX.Element {
-  const { showBrowser, showGit, setShowActivity, swapRightPanes } = useWorkspace()
+  const { showBrowser, showGit, showKnowledge, setShowActivity, swapRightPanes } = useWorkspace()
   const [events, setEvents] = useState<ActivityEvent[]>([])
   const [filter, setFilter] = useState<string | 'edits' | null>('edits')
   const [pinned, setPinned] = useState(false)
-  const bottom = useRef<HTMLDivElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
+  const content = useRef<HTMLDivElement>(null)
+  const pinnedRef = useRef(false)
+  const ignoreScrollRef = useRef(false)
+  const lastScrollTop = useRef(0)
+
+  function stickToBottom(): void {
+    const node = scroller.current
+    if (!node || pinnedRef.current) return
+    ignoreScrollRef.current = true
+    node.scrollTop = node.scrollHeight
+    lastScrollTop.current = node.scrollTop
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        ignoreScrollRef.current = false
+      })
+    })
+  }
 
   useEffect(() => {
     void window.grokcode.getActivity().then((snapshot: ActivitySnapshot) => {
@@ -139,6 +175,8 @@ export function ActivityApp(): React.JSX.Element {
     })
     return window.grokcode.onActivityEvent((feed) => {
       if (feed.type === 'reset') {
+        pinnedRef.current = false
+        setPinned(false)
         setEvents(feed.events)
         return
       }
@@ -154,10 +192,17 @@ export function ActivityApp(): React.JSX.Element {
     })
   }, [])
 
-  useEffect(() => {
-    if (pinned) return
-    bottom.current?.scrollIntoView({ block: 'end' })
+  useLayoutEffect(() => {
+    stickToBottom()
   }, [events, pinned, filter])
+
+  useEffect(() => {
+    const node = content.current
+    if (!node) return
+    const observer = new ResizeObserver(() => stickToBottom())
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
 
   const chats = useMemo(() => {
     const seen = new Map<string, string>()
@@ -184,15 +229,39 @@ export function ActivityApp(): React.JSX.Element {
   function onScroll(): void {
     const node = scroller.current
     if (!node) return
-    const distance = node.scrollHeight - node.scrollTop - node.clientHeight
-    setPinned(distance > 48)
+    const top = node.scrollTop
+    const nearBottom = node.scrollHeight - top - node.clientHeight <= 80
+    if (nearBottom) {
+      if (pinnedRef.current) {
+        pinnedRef.current = false
+        setPinned(false)
+      }
+    } else if (!ignoreScrollRef.current && top < lastScrollTop.current - 1) {
+      if (!pinnedRef.current) {
+        pinnedRef.current = true
+        setPinned(true)
+      }
+    }
+    lastScrollTop.current = top
+  }
+
+  function jumpToLatest(): void {
+    pinnedRef.current = false
+    setPinned(false)
+    stickToBottom()
+  }
+
+  function applyFilter(next: string | 'edits' | null): void {
+    pinnedRef.current = false
+    setPinned(false)
+    setFilter(next)
   }
 
   return (
     <div className="flex h-full flex-col bg-sidebar text-ink">
       <header className="drag shrink-0">
         <div className="flex h-titlebar items-center justify-between gap-2 border-b border-line px-3">
-          {(showBrowser || showGit) && (
+          {(showBrowser || showGit || showKnowledge) && (
             <ReorderGrip onSwap={swapRightPanes} label="Reorder panes" />
           )}
           <div className="no-drag min-w-0 flex-1">
@@ -221,7 +290,7 @@ export function ActivityApp(): React.JSX.Element {
             className={`rounded-md px-2 py-1 text-[11px] ${
               filter === 'edits' ? 'bg-raised text-ink' : 'text-muted hover:bg-raised hover:text-ink'
             }`}
-            onClick={() => setFilter('edits')}
+            onClick={() => applyFilter('edits')}
           >
             Edits{editCount > 0 ? ` ${editCount}` : ''}
           </button>
@@ -229,7 +298,7 @@ export function ActivityApp(): React.JSX.Element {
             className={`rounded-md px-2 py-1 text-[11px] ${
               filter === null ? 'bg-raised text-ink' : 'text-muted hover:bg-raised hover:text-ink'
             }`}
-            onClick={() => setFilter(null)}
+            onClick={() => applyFilter(null)}
           >
             All
           </button>
@@ -239,24 +308,40 @@ export function ActivityApp(): React.JSX.Element {
               className={`max-w-[180px] truncate rounded-md px-2 py-1 text-[11px] ${
                 filter === chatId ? 'bg-raised text-ink' : 'text-muted hover:bg-raised hover:text-ink'
               }`}
-              onClick={() => setFilter(chatId)}
+              onClick={() => applyFilter(chatId)}
             >
               {title}
             </button>
           ))}
         </div>
       </header>
-      <div ref={scroller} className="select-text min-h-0 flex-1 overflow-y-auto" onScroll={onScroll}>
-        {visible.length === 0 ? (
-          <div className="px-3 pt-6 text-[13px] leading-6 text-muted">
-            {filter === 'edits'
-              ? 'File edits will show here as side-by-side diffs once Grok changes a file.'
-              : 'Send a message in a chat. Thinking, tool calls, and the plan show up here as Grok works.'}
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={scroller}
+          className="select-text h-full overflow-y-auto [overflow-anchor:none]"
+          onScroll={onScroll}
+        >
+          <div ref={content}>
+            {visible.length === 0 ? (
+              <div className="px-3 pt-6 text-[13px] leading-6 text-muted">
+                {filter === 'edits'
+                  ? 'File edits will show here as side-by-side diffs once Grok changes a file.'
+                  : 'Send a message in a chat. Thinking, tool calls, and the plan show up here as Grok works.'}
+              </div>
+            ) : (
+              visible.map((event) => <EventRow key={event.id} event={event} />)
+            )}
           </div>
-        ) : (
-          visible.map((event) => <EventRow key={event.id} event={event} />)
+        </div>
+        {pinned && visible.length > 0 && (
+          <button
+            type="button"
+            className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full border border-line bg-raised px-3 py-1 text-[11px] text-ink shadow-lg hover:bg-surface active:translate-y-px"
+            onClick={jumpToLatest}
+          >
+            Latest
+          </button>
         )}
-        <div ref={bottom} />
       </div>
     </div>
   )

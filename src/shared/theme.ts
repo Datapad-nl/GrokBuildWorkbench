@@ -125,7 +125,7 @@ export const GRAPHITE_THEME: ThemeFile = {
   version: 1,
   id: 'graphite',
   name: 'Graphite',
-  description: 'The original GrokCode charcoal.',
+  description: 'The original Workbench charcoal.',
   colors: {
     canvas: '#141414',
     sidebar: '#191919',

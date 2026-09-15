@@ -1,0 +1,24 @@
+---
+tags:
+  - grokcode
+  - generated
+  - overview
+grokcode_generated: true
+---
+
+# Overview
+
+> This note is maintained by Grok Build Workbench. Add your own writing in `notes/`.
+
+Electron + Vite + React desktop app. Unofficial desktop for Grok Build. Projects in the sidebar, concurrent chats.
+Stack: Electron + React + Vite + Tailwind.
+Languages: javascript, tsx, typescript.
+56 indexed files.
+1302 symbols.
+
+## Map
+
+- [[Architecture]]
+- [[Stack]]
+- [[Rules]]
+- [[Home]]

@@ -1,24 +1,28 @@
 import { app } from 'electron'
 import { mkdir, readFile, readdir, rm, writeFile } from 'fs/promises'
-import { join } from 'path'
+import { join, normalize } from 'path'
 import { normalizeHexColor, pickProjectColor } from '../shared/projectColor'
 import { DEFAULT_THEME_ID } from '../shared/theme'
 import {
   DEFAULT_MODEL,
+  DEFAULT_VOICE,
+  normalizeVoiceSettings,
   type Chat,
   type ChatSummary,
   type Project,
   type PublicSettings,
-  type UpdateProjectInput
+  type UpdateProjectInput,
+  type VoiceSettings
 } from '../shared/types'
-import { queueIndex } from './codegraph'
+import { isUnsafeProjectPath, queueIndex } from './codegraph'
 import { id, now } from './ids'
-import { grokBuildSignedIn, listGrokSessions, readGrokHistory } from './sessions'
+import { grokBuildSignedIn, listGrokSessions, readGrokHistory, readGrokPlan } from './sessions'
 
 type SettingsFile = {
   apiKey: string
   model: string
   themeId: string
+  voice: VoiceSettings
 }
 
 type StoreData = {
@@ -51,6 +55,15 @@ function dataDir(): string {
 
 function projectsPath(): string {
   return join(dataDir(), 'projects.json')
+}
+
+function dismissedPathsFile(): string {
+  return join(dataDir(), 'dismissed-paths.json')
+}
+
+function normalizeProjectPath(value: string): string {
+  const normalized = normalize(value.trim())
+  return normalized.replace(/[/\\]+$/, '') || normalized
 }
 
 function settingsPath(): string {
@@ -89,7 +102,8 @@ export async function ensureStore(): Promise<void> {
     await writeJson(settingsPath(), {
       apiKey: '',
       model: DEFAULT_MODEL,
-      themeId: DEFAULT_THEME_ID
+      themeId: DEFAULT_THEME_ID,
+      voice: DEFAULT_VOICE
     } satisfies SettingsFile)
   }
   await mkdir(join(dataDir(), 'themes'), { recursive: true })
@@ -125,12 +139,36 @@ async function saveProjects(projects: Project[]): Promise<void> {
   await writeJson(projectsPath(), { projects } satisfies StoreData)
 }
 
+async function loadDismissedPaths(): Promise<Set<string>> {
+  const paths = await readJson<string[]>(dismissedPathsFile(), [])
+  return new Set(paths.filter((item) => typeof item === 'string').map(normalizeProjectPath))
+}
+
+async function saveDismissedPaths(paths: Set<string>): Promise<void> {
+  await writeJson(dismissedPathsFile(), [...paths])
+}
+
+async function dismissProjectPath(path: string | null | undefined): Promise<void> {
+  if (!path?.trim()) return
+  const dismissed = await loadDismissedPaths()
+  dismissed.add(normalizeProjectPath(path))
+  await saveDismissedPaths(dismissed)
+}
+
+async function rememberProjectPath(path: string | null | undefined): Promise<void> {
+  if (!path?.trim()) return
+  const dismissed = await loadDismissedPaths()
+  if (!dismissed.delete(normalizeProjectPath(path))) return
+  await saveDismissedPaths(dismissed)
+}
+
 async function loadSettingsFile(): Promise<SettingsFile> {
   const file = await readJson<Partial<SettingsFile>>(settingsPath(), {})
   return {
     apiKey: file.apiKey ?? '',
     model: file.model || DEFAULT_MODEL,
-    themeId: file.themeId || DEFAULT_THEME_ID
+    themeId: file.themeId || DEFAULT_THEME_ID,
+    voice: normalizeVoiceSettings(file.voice)
   }
 }
 
@@ -143,7 +181,8 @@ export async function setThemeId(themeId: string): Promise<void> {
   const current = await loadSettingsFile()
   await writeJson(settingsPath(), {
     ...current,
-    themeId: themeId || DEFAULT_THEME_ID
+    themeId: themeId || DEFAULT_THEME_ID,
+    voice: normalizeVoiceSettings(current.voice)
   } satisfies SettingsFile)
 }
 
@@ -158,13 +197,15 @@ export async function getPublicSettings(): Promise<PublicSettings> {
   const stored = file.apiKey.trim()
   const signedIn = grokBuildSignedIn()
   const model = file.model || DEFAULT_MODEL
+  const voice = file.voice
   if (signedIn) {
     return {
       hasKey: true,
       keyPreview: 'Grok Build',
       model,
       keySource: 'grok-build',
-      grokBuildSignedIn: true
+      grokBuildSignedIn: true,
+      voice
     }
   }
   if (envKey) {
@@ -173,7 +214,8 @@ export async function getPublicSettings(): Promise<PublicSettings> {
       keyPreview: maskKey(envKey),
       model,
       keySource: 'env',
-      grokBuildSignedIn: false
+      grokBuildSignedIn: false,
+      voice
     }
   }
   if (stored) {
@@ -182,7 +224,8 @@ export async function getPublicSettings(): Promise<PublicSettings> {
       keyPreview: maskKey(stored),
       model,
       keySource: 'settings',
-      grokBuildSignedIn: false
+      grokBuildSignedIn: false,
+      voice
     }
   }
   return {
@@ -190,7 +233,8 @@ export async function getPublicSettings(): Promise<PublicSettings> {
     keyPreview: null,
     model,
     keySource: 'none',
-    grokBuildSignedIn: false
+    grokBuildSignedIn: false,
+    voice
   }
 }
 
@@ -206,12 +250,17 @@ export async function getModel(): Promise<string> {
   return file.model || DEFAULT_MODEL
 }
 
-export async function updateSettings(input: { apiKey?: string; model?: string }): Promise<PublicSettings> {
+export async function updateSettings(input: {
+  apiKey?: string
+  model?: string
+  voice?: Partial<VoiceSettings>
+}): Promise<PublicSettings> {
   const current = await loadSettingsFile()
   await writeJson(settingsPath(), {
     apiKey: input.apiKey !== undefined ? input.apiKey.trim() : current.apiKey,
     model: input.model?.trim() || current.model || DEFAULT_MODEL,
-    themeId: current.themeId || DEFAULT_THEME_ID
+    themeId: current.themeId || DEFAULT_THEME_ID,
+    voice: normalizeVoiceSettings({ ...current.voice, ...input.voice })
   } satisfies SettingsFile)
   return getPublicSettings()
 }
@@ -222,6 +271,10 @@ export async function listProjects(): Promise<Project[]> {
 }
 
 export async function createProject(name: string, path: string | null, color?: string): Promise<Project> {
+  if (path && isUnsafeProjectPath(path)) {
+    throw new Error('Choose a project folder, not your home directory or a whole disk.')
+  }
+  await rememberProjectPath(path)
   const projects = await loadProjects()
   const timestamp = now()
   const project: Project = {
@@ -245,6 +298,9 @@ export async function updateProject(input: UpdateProjectInput): Promise<Project>
   const current = projects[index]
   const nextName = input.name !== undefined ? input.name.trim() || current.name : current.name
   const nextPath = input.path !== undefined ? input.path : current.path
+  if (nextPath && isUnsafeProjectPath(nextPath)) {
+    throw new Error('Choose a project folder, not your home directory or a whole disk.')
+  }
   const nextColor =
     input.color !== undefined ? (normalizeHexColor(input.color) ?? current.color) : current.color
   const renamed = nextName !== current.name
@@ -257,6 +313,10 @@ export async function updateProject(input: UpdateProjectInput): Promise<Project>
     updatedAt: renamed || moved ? now() : current.updatedAt
   }
   projects[index] = next
+  if (moved) {
+    if (current.path) await dismissProjectPath(current.path)
+    if (next.path) await rememberProjectPath(next.path)
+  }
   await saveProjects(projects)
   if (next.path && next.path !== current.path) {
     queueIndex(next.id, next.path)
@@ -264,9 +324,19 @@ export async function updateProject(input: UpdateProjectInput): Promise<Project>
   return next
 }
 
+export async function purgeUnsafeProjects(): Promise<void> {
+  const projects = await loadProjects()
+  const bad = projects.filter((project) => project.path && isUnsafeProjectPath(project.path))
+  for (const project of bad) {
+    await deleteProject(project.id)
+  }
+}
+
 export async function deleteProject(projectId: string): Promise<void> {
   const projects = await loadProjects()
-  await saveProjects(projects.filter((project) => project.id !== projectId))
+  const project = projects.find((item) => item.id === projectId)
+  await dismissProjectPath(project?.path)
+  await saveProjects(projects.filter((item) => item.id !== projectId))
   const chats = await listChats()
   await Promise.all(
     chats.filter((chat) => chat.projectId === projectId).map((chat) => deleteChat(chat.id))
@@ -285,6 +355,24 @@ export async function getChat(chatId: string): Promise<Chat> {
     const cwd = chat.worktreePath || project?.path
     if (cwd) {
       chat.messages = readGrokHistory(chat.grokSessionId, cwd)
+    }
+  }
+  if (chat.grokSessionId) {
+    const disk = readGrokPlan(chat.grokSessionId)
+    if (disk?.awaitingApproval) {
+      const markdown = chat.plan?.markdown || disk.markdown
+      const entries = chat.plan?.entries?.length ? chat.plan.entries : disk.plan.entries
+      chat.plan = {
+        title:
+          chat.plan?.title && chat.plan.title !== 'Plan' && chat.plan.title !== 'No plan written yet'
+            ? chat.plan.title
+            : disk.plan.title,
+        entries,
+        markdown,
+        awaitingApproval: chat.plan?.awaitingApproval === false ? false : true
+      }
+    } else if (chat.plan?.awaitingApproval && !disk?.awaitingApproval) {
+      chat.plan = { ...chat.plan, awaitingApproval: false }
     }
   }
   return {
@@ -346,11 +434,15 @@ export async function syncGrokSessions(): Promise<void> {
   const projects = await loadProjects()
   const chats = await listChats()
   const known = new Set(chats.map((chat) => chat.grokSessionId).filter(Boolean))
+  const dismissed = await loadDismissedPaths()
 
   for (const session of sessions) {
     if (known.has(session.id)) continue
-    let project = projects.find((item) => item.path === session.cwd)
+    const cwd = normalizeProjectPath(session.cwd)
+    if (isUnsafeProjectPath(cwd)) continue
+    let project = projects.find((item) => item.path && normalizeProjectPath(item.path) === cwd)
     if (!project) {
+      if (dismissed.has(cwd)) continue
       const name = session.cwd.split(/[/\\]/).filter(Boolean).at(-1) || 'Project'
       project = await createProject(name, session.cwd)
       projects.unshift(project)
@@ -369,6 +461,18 @@ export async function saveChat(chat: Chat): Promise<Chat> {
     const next = { ...chat, updatedAt: now() }
     await writeJson(chatPath(chat.id), next)
     await touchProject(chat.projectId)
+    return next
+  })
+}
+
+export async function mutateChat(chatId: string, fn: (chat: Chat) => void): Promise<Chat> {
+  return withLock(chatId, async () => {
+    const chat = await readChat(chatId)
+    if (!chat) throw new Error('Chat not found')
+    fn(chat)
+    const next = { ...chat, updatedAt: now() }
+    await writeJson(chatPath(chatId), next)
+    await touchProject(next.projectId)
     return next
   })
 }

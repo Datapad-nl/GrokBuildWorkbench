@@ -17,16 +17,50 @@ import type {
 } from '../shared/types'
 import { relPath } from './checkpoints'
 import { getChat, listProjects } from './store'
+import { killProcessesUnder } from './worktreeProcs'
 
 const GRAPH_LIMIT = 80
 const MAX_DIFF_CHARS = 200_000
-const WATCH_MS = 350
+const WATCH_MS = 800
+const IGNORE_SEGMENTS = new Set([
+  '.git',
+  '.codegraph',
+  'node_modules',
+  'dist',
+  'out',
+  'build',
+  '.next',
+  'target',
+  'vendor',
+  '__pycache__',
+  '.venv',
+  'venv',
+  '.turbo',
+  'coverage',
+  '.cache',
+  '.output',
+  '.nuxt',
+  '.svelte-kit',
+  '.vercel',
+  '.netlify',
+  'objects',
+  'logs'
+])
+
+function noisyWatchPath(filename: string | Buffer | null | undefined): boolean {
+  if (filename == null) return false
+  const rel = String(filename)
+  if (rel.endsWith('.lock') || rel.endsWith('.swp') || rel.endsWith('~')) return true
+  return rel.split(/[/\\]/).some((part) => IGNORE_SEGMENTS.has(part))
+}
 
 type RunResult = { code: number; stdout: string; stderr: string }
 
 const gitWatchers = new Map<string, FSWatcher>()
 const worktreeWatchers = new Map<string, FSWatcher>()
 const pending = new Map<string, ReturnType<typeof setTimeout>>()
+const runningBroadcast = new Set<string>()
+const rerunBroadcast = new Set<string>()
 let activeWatch: { projectId: string; chatId: string | null } | null = null
 
 function runGit(cwd: string, args: string[]): Promise<RunResult> {
@@ -85,6 +119,7 @@ export async function addChatWorktree(
 }
 
 export async function removeChatWorktree(projectPath: string, worktreePath: string): Promise<void> {
+  await killProcessesUnder(worktreePath)
   const removed = await runGit(projectPath, ['worktree', 'remove', '--force', worktreePath])
   if (removed.code === 0) return
   await runGit(projectPath, ['worktree', 'prune'])
@@ -345,28 +380,32 @@ async function resolveRepo(
 ): Promise<{ id: string; path: string; chatId: string | null } | { snapshot: GitSnapshot }> {
   const projects = await listProjects()
   const project = projects.find((item) => item.id === projectId)
-  if (!project) return { snapshot: emptySnapshot(projectId, null, 'error', 'Project not found', chatId ?? null) }
+  if (!project) return { snapshot: emptySnapshot(projectId, null, 'error', 'Project not found', null) }
   let cwd = project.path
+  let resolvedChatId: string | null = null
   if (chatId) {
     try {
       const chat = await getChat(chatId)
-      cwd = chatWorkingDir(chat, project.path)
+      if (chat.projectId === projectId) {
+        cwd = chatWorkingDir(chat, project.path)
+        resolvedChatId = chatId
+      }
     } catch {
       cwd = project.path
     }
   }
-  if (!cwd) return { snapshot: emptySnapshot(projectId, null, 'no-folder', null, chatId ?? null) }
+  if (!cwd) return { snapshot: emptySnapshot(projectId, null, 'no-folder', null, resolvedChatId) }
   const inside = await runGit(cwd, ['rev-parse', '--is-inside-work-tree'])
   if (inside.code !== 0 || inside.stdout.trim() !== 'true') {
-    return { snapshot: emptySnapshot(projectId, cwd, 'not-a-repo', null, chatId ?? null) }
+    return { snapshot: emptySnapshot(projectId, cwd, 'not-a-repo', null, resolvedChatId) }
   }
-  return { id: project.id, path: cwd, chatId: chatId ?? null }
+  return { id: project.id, path: cwd, chatId: resolvedChatId }
 }
 
 export async function getGitSnapshot(projectId: string, chatId?: string | null): Promise<GitSnapshot> {
   const repo = await resolveRepo(projectId, chatId)
   if ('snapshot' in repo) return repo.snapshot
-  const status = await runGit(repo.path, ['status', '--porcelain=v1', '-b', '-z', '-uall'])
+  const status = await runGit(repo.path, ['status', '--porcelain=v1', '-b', '-z'])
   if (status.code !== 0) {
     return emptySnapshot(projectId, repo.path, 'error', status.stderr.trim() || 'git status failed', repo.chatId)
   }
@@ -591,12 +630,26 @@ function scheduleProject(projectId: string, chatId?: string | null): void {
 }
 
 async function broadcastGit(projectId: string, chatId?: string | null): Promise<void> {
-  const [snapshot, summaries] = await Promise.all([
-    getGitSnapshot(projectId, chatId),
-    getGitSummaries()
-  ])
-  emitGit('git:snapshot', snapshot)
-  emitGit('git:summaries', summaries)
+  const key = `${projectId}:${chatId ?? ''}`
+  if (runningBroadcast.has(key)) {
+    rerunBroadcast.add(key)
+    return
+  }
+  runningBroadcast.add(key)
+  try {
+    const [snapshot, summaries] = await Promise.all([
+      getGitSnapshot(projectId, chatId),
+      getGitSummaries()
+    ])
+    emitGit('git:snapshot', snapshot)
+    emitGit('git:summaries', summaries)
+  } finally {
+    runningBroadcast.delete(key)
+    if (rerunBroadcast.has(key)) {
+      rerunBroadcast.delete(key)
+      void broadcastGit(projectId, chatId)
+    }
+  }
 }
 
 async function watchGitDir(projectId: string, cwd: string): Promise<void> {
@@ -608,9 +661,10 @@ async function watchGitDir(projectId: string, cwd: string): Promise<void> {
   const dir = await runGit(cwd, ['rev-parse', '--absolute-git-dir'])
   if (dir.code !== 0) return
   try {
-    const watcher = watch(dir.stdout.trim(), { persistent: false }, () =>
+    const watcher = watch(dir.stdout.trim(), { persistent: false }, (_event, filename) => {
+      if (noisyWatchPath(filename)) return
       scheduleProject(projectId, activeWatch?.projectId === projectId ? activeWatch.chatId : null)
-    )
+    })
     watcher.on('error', () => {
       watcher.close()
       gitWatchers.delete(projectId)
@@ -628,9 +682,10 @@ function watchWorktree(projectId: string, cwd: string, chatId: string | null): v
     worktreeWatchers.delete(projectId)
   }
   try {
-    const watcher = watch(cwd, { persistent: false, recursive: true }, () =>
+    const watcher = watch(cwd, { persistent: false, recursive: true }, (_event, filename) => {
+      if (noisyWatchPath(filename)) return
       scheduleProject(projectId, chatId)
-    )
+    })
     watcher.on('error', () => {
       watcher.close()
       worktreeWatchers.delete(projectId)

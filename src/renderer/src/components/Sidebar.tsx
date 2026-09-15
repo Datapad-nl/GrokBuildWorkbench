@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { PROJECT_COLORS, resolveProjectColor } from '../../../shared/projectColor'
 import type { Project } from '../../../shared/types'
-import { useWorkspace, type RightPaneId } from '../workspace'
+import { useStreams, useWorkspace, type RightPaneId } from '../workspace'
 import { IndexStatus } from './OrientationCard'
 import { ReorderGrip } from './ReorderGrip'
 
@@ -141,6 +141,167 @@ function ProjectColorButton({ project }: { project: Project }): React.JSX.Elemen
   )
 }
 
+function clampMenuPos(x: number, y: number, width: number, height: number): { top: number; left: number } {
+  return {
+    left: Math.max(8, Math.min(x, window.innerWidth - width - 8)),
+    top: Math.max(8, y + height + 8 > window.innerHeight ? y - height : y)
+  }
+}
+
+function ProjectRenameInput({
+  project,
+  onDone
+}: {
+  project: Project
+  onDone: () => void
+}): React.JSX.Element {
+  const { updateProject } = useWorkspace()
+  const [draft, setDraft] = useState(project.name)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const finished = useRef(false)
+
+  useEffect(() => {
+    inputRef.current?.select()
+  }, [])
+
+  function finish(): void {
+    if (finished.current) return
+    finished.current = true
+    onDone()
+  }
+
+  async function commit(): Promise<void> {
+    if (finished.current) return
+    finished.current = true
+    const name = draft.trim()
+    try {
+      if (name && name !== project.name) {
+        await updateProject({ id: project.id, name })
+      }
+    } finally {
+      onDone()
+    }
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      autoFocus
+      data-testid="rename-project"
+      value={draft}
+      aria-label={`Rename ${project.name}`}
+      className="min-w-0 flex-1 rounded-sm bg-canvas px-1 text-[12px] font-medium text-ink outline-none ring-1 ring-accent/60"
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => void commit()}
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          void commit()
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          finish()
+        }
+      }}
+    />
+  )
+}
+
+function ProjectMenu({
+  project,
+  pos,
+  onRename,
+  onClose
+}: {
+  project: Project
+  pos: { top: number; left: number }
+  onRename: () => void
+  onClose: () => void
+}): React.JSX.Element {
+  const { updateProject, pickFolder, deleteProject } = useWorkspace()
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onDown(event: MouseEvent): void {
+      const target = event.target as HTMLElement
+      if (menuRef.current?.contains(target)) return
+      if (target.closest('[data-testid="project-options"]')) return
+      onClose()
+    }
+
+    function onKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape') onClose()
+    }
+
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  async function changeFolder(): Promise<void> {
+    onClose()
+    const next = await pickFolder()
+    if (next) await updateProject({ id: project.id, path: next })
+  }
+
+  function remove(): void {
+    onClose()
+    if (confirm(`Delete ${project.name} and its chats?`)) {
+      void deleteProject(project.id)
+    }
+  }
+
+  const itemClass =
+    'flex w-full items-center rounded-md px-2 py-1.5 text-left text-[12px] text-ink hover:bg-raised'
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      data-testid="project-menu"
+      role="menu"
+      className="fixed z-50 min-w-[168px] rounded-lg border border-line bg-surface p-1 shadow-2xl"
+      style={{ top: pos.top, left: pos.left }}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        data-testid="project-menu-rename"
+        className={itemClass}
+        onClick={() => {
+          onClose()
+          onRename()
+        }}
+      >
+        Rename
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        data-testid="project-menu-folder"
+        className={itemClass}
+        onClick={() => void changeFolder()}
+      >
+        Change folder
+      </button>
+      <div className="my-1 border-t border-line" />
+      <button
+        type="button"
+        role="menuitem"
+        data-testid="project-menu-delete"
+        className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-[12px] text-danger hover:bg-raised"
+        onClick={remove}
+      >
+        Delete
+      </button>
+    </div>,
+    document.body
+  )
+}
+
 function ActivityToggle(): React.JSX.Element {
   const { showActivity, setShowActivity, swapRightPanes } = useWorkspace()
 
@@ -201,12 +362,33 @@ function GitToggle(): React.JSX.Element {
   )
 }
 
+function KnowledgeToggle(): React.JSX.Element {
+  const { showKnowledge, setShowKnowledge, swapRightPanes } = useWorkspace()
+
+  return (
+    <div className="flex items-center">
+      <ReorderGrip onSwap={swapRightPanes} label="Reorder panes" />
+      <button
+        data-testid="open-knowledge"
+        className={`flex h-8 min-w-0 flex-1 items-center justify-between rounded-md px-2 text-left text-[11px] hover:bg-raised hover:text-ink ${
+          showKnowledge ? 'text-ink' : 'text-muted'
+        }`}
+        onClick={() => setShowKnowledge(!showKnowledge)}
+      >
+        <span>Knowledge</span>
+        <span>{showKnowledge ? 'Hide' : 'Show'}</span>
+      </button>
+    </div>
+  )
+}
+
 function PaneToggles(): React.JSX.Element {
   const { rightPaneOrder } = useWorkspace()
   const panes: Record<RightPaneId, React.JSX.Element> = {
     git: <GitToggle key="git" />,
     browser: <BrowserToggle key="browser" />,
-    activity: <ActivityToggle key="activity" />
+    activity: <ActivityToggle key="activity" />,
+    knowledge: <KnowledgeToggle key="knowledge" />
   }
   return <>{rightPaneOrder.map((id) => panes[id])}</>
 }
@@ -217,20 +399,21 @@ export function Sidebar(): React.JSX.Element {
     chats,
     activeProjectId,
     activeChatId,
-    streams,
     settings,
     selectProject,
     openChat,
     createChat,
     deleteChat,
-    deleteProject,
     setShowNewProject,
     setShowSettings,
     gitSummaries,
     setShowGit
   } = useWorkspace()
+  const streams = useStreams()
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(readCollapsed)
   const [width, setWidth] = useState(readWidth)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [menu, setMenu] = useState<{ projectId: string; top: number; left: number } | null>(null)
 
   useEffect(() => {
     localStorage.setItem(WIDTH_KEY, String(width))
@@ -249,6 +432,10 @@ export function Sidebar(): React.JSX.Element {
       if (!current[projectId]) return current
       return { ...current, [projectId]: false }
     })
+  }
+
+  function openMenu(projectId: string, x: number, y: number): void {
+    setMenu({ projectId, ...clampMenuPos(x, y, 168, 112) })
   }
 
   function startResize(event: React.PointerEvent<HTMLDivElement>): void {
@@ -281,6 +468,8 @@ export function Sidebar(): React.JSX.Element {
     return grouped
   }, [chats])
 
+  const menuProject = menu ? (projects.find((item) => item.id === menu.projectId) ?? null) : null
+
   return (
     <aside
       className="relative flex h-full shrink-0 flex-col border-r border-line bg-sidebar"
@@ -289,7 +478,9 @@ export function Sidebar(): React.JSX.Element {
       <header className="drag flex h-titlebar shrink-0 items-center border-b border-line pl-traffic pr-2">
         <div className="no-drag flex min-w-0 flex-1 items-center justify-between gap-2">
           <div className="min-w-0">
-            <div className="truncate text-[13px] font-semibold tracking-tight text-ink">GrokCode</div>
+            <div className="truncate text-[13px] font-semibold tracking-tight text-ink">
+              Grok Build Workbench
+            </div>
             <div className="mt-px font-mono text-[8px] uppercase tracking-[0.14em] text-muted">
               Desktop
             </div>
@@ -323,6 +514,10 @@ export function Sidebar(): React.JSX.Element {
                   className={`flex h-8 items-center gap-1 rounded-md pr-0.5 ${
                     selected ? 'bg-active' : 'hover:bg-raised/70'
                   }`}
+                  onContextMenu={(event) => {
+                    event.preventDefault()
+                    openMenu(project.id, event.clientX, event.clientY)
+                  }}
                 >
                   <button
                     className="flex h-8 w-6 shrink-0 items-center justify-center rounded-sm text-ink/80 hover:bg-canvas hover:text-ink"
@@ -348,15 +543,25 @@ export function Sidebar(): React.JSX.Element {
                     </svg>
                   </button>
                   <ProjectColorButton project={project} />
-                  <button
-                    className="flex min-w-0 flex-1 items-center text-left"
-                    onClick={() => {
-                      selectProject(project.id)
-                      expandProject(project.id)
-                    }}
-                  >
-                    <span className="truncate text-[12px] font-medium text-ink">{project.name}</span>
-                  </button>
+                  {renamingId === project.id ? (
+                    <ProjectRenameInput project={project} onDone={() => setRenamingId(null)} />
+                  ) : (
+                    <button
+                      className="flex min-w-0 flex-1 items-center text-left"
+                      title="Double-click to rename"
+                      onClick={() => {
+                        selectProject(project.id)
+                        expandProject(project.id)
+                      }}
+                      onDoubleClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        setRenamingId(project.id)
+                      }}
+                    >
+                      <span className="truncate text-[12px] font-medium text-ink">{project.name}</span>
+                    </button>
+                  )}
                   {gitSummaries[project.id]?.available && (
                     <button
                       className="max-w-[88px] shrink-0 truncate px-1 font-mono text-[9px] text-muted hover:text-ink"
@@ -384,15 +589,22 @@ export function Sidebar(): React.JSX.Element {
                     +
                   </button>
                   <button
-                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[13px] text-muted hover:bg-canvas hover:text-danger"
-                    title="Delete project"
-                    onClick={() => {
-                      if (confirm(`Delete ${project.name} and its chats?`)) {
-                        void deleteProject(project.id)
+                    data-testid="project-options"
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[13px] text-muted hover:bg-canvas hover:text-ink"
+                    title="Project options"
+                    aria-label={`Options for ${project.name}`}
+                    aria-expanded={menu?.projectId === project.id}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      if (menu?.projectId === project.id) {
+                        setMenu(null)
+                        return
                       }
+                      const rect = event.currentTarget.getBoundingClientRect()
+                      openMenu(project.id, rect.left, rect.bottom + 4)
                     }}
                   >
-                    ×
+                    ⋯
                   </button>
                 </div>
                 {open && (
@@ -483,6 +695,14 @@ export function Sidebar(): React.JSX.Element {
         className="no-drag absolute top-0 right-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-accent/30 active:bg-accent/40"
         onPointerDown={startResize}
       />
+      {menu && menuProject && (
+        <ProjectMenu
+          project={menuProject}
+          pos={{ top: menu.top, left: menu.left }}
+          onRename={() => setRenamingId(menuProject.id)}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </aside>
   )
 }

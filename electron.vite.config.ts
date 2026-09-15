@@ -7,12 +7,17 @@ export default defineConfig({
   main: {},
   preload: {},
   renderer: {
+    publicDir: resolve('src/renderer/public'),
     resolve: {
       alias: {
         '@renderer': resolve('src/renderer/src'),
         '@shared': resolve('src/shared')
       }
     },
-    plugins: [react(), tailwindcss()]
+    plugins: [react(), tailwindcss()],
+    optimizeDeps: {
+      exclude: ['@huggingface/transformers']
+    },
+    assetsInclude: ['**/*.wasm']
   }
 })

@@ -1,8 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { ThemeFile, ThemeSummary } from '../shared/theme'
+import type { YoutubeTranscriptResult } from '../shared/youtube'
 import type {
   ActivityFeed,
   ActivitySnapshot,
+  BrowserAnnotationHit,
   BrowserBounds,
   BrowserState,
   ChatEvent,
@@ -14,8 +16,14 @@ import type {
   GitSnapshot,
   GitSummary,
   IndexEvent,
+  KnowledgeNote,
+  KnowledgeSnapshot,
   PermissionMode,
-  UpdateProjectInput
+  PlanVerdict,
+  UpdateProjectInput,
+  UsageSnapshot,
+  VoiceModelStatus,
+  VoiceSettings
 } from '../shared/types'
 
 const api = {
@@ -25,6 +33,8 @@ const api = {
   deleteProject: (projectId: string) => ipcRenderer.invoke('project:delete', projectId),
   indexProject: (projectId: string) => ipcRenderer.invoke('project:index', projectId),
   getOrientation: (projectId: string) => ipcRenderer.invoke('project:orientation', projectId),
+  ensureProjectIntake: (projectId: string, chatId: string) =>
+    ipcRenderer.invoke('project:ensureIntake', { projectId, chatId }),
   pickFolder: () => ipcRenderer.invoke('project:pickFolder'),
   createChat: (projectId: string) => ipcRenderer.invoke('chat:create', projectId),
   getChat: (chatId: string) => ipcRenderer.invoke('chat:get', chatId),
@@ -43,11 +53,32 @@ const api = {
     ipcRenderer.invoke('chat:setMode', { chatId, mode }),
   resolvePermission: (requestId: string, decision: 'allow' | 'deny') =>
     ipcRenderer.invoke('chat:resolvePermission', { requestId, decision }),
+  resolveQuestion: (
+    requestId: string,
+    decision: { type: 'skip' } | { type: 'submit'; answers: string[][] }
+  ) => ipcRenderer.invoke('chat:resolveQuestion', { requestId, ...decision }),
+  resolvePlanApproval: (chatId: string, decision?: 'allow' | 'deny' | PlanVerdict) =>
+    ipcRenderer.invoke('chat:resolvePlanApproval', { chatId, decision }) as Promise<boolean>,
   rewindChat: (chatId: string, checkpointId: string) =>
     ipcRenderer.invoke('chat:rewind', { chatId, checkpointId }),
   getSettings: () => ipcRenderer.invoke('settings:get'),
-  setSettings: (input: { apiKey?: string; model?: string }) =>
+  setSettings: (input: { apiKey?: string; model?: string; voice?: Partial<VoiceSettings> }) =>
     ipcRenderer.invoke('settings:set', input),
+  getVoiceModelStatus: () => ipcRenderer.invoke('voice:modelStatus') as Promise<VoiceModelStatus>,
+  ensureVoiceModel: () => ipcRenderer.invoke('voice:ensureModel') as Promise<VoiceModelStatus>,
+  ensureMic: () => ipcRenderer.invoke('voice:ensureMic') as Promise<boolean>,
+  getMicAccess: () =>
+    ipcRenderer.invoke('voice:micAccess') as Promise<
+      'granted' | 'denied' | 'not-determined' | 'restricted' | 'unknown'
+    >,
+  openMicSettings: () => ipcRenderer.invoke('voice:openMicSettings') as Promise<void>,
+  onVoiceModelStatus: (listener: (status: VoiceModelStatus) => void) => {
+    const wrapped = (_event: unknown, payload: VoiceModelStatus): void => listener(payload)
+    ipcRenderer.on('voice:modelStatus', wrapped)
+    return () => {
+      ipcRenderer.removeListener('voice:modelStatus', wrapped)
+    }
+  },
   getThemeState: (): Promise<{ active: ThemeFile; themes: ThemeSummary[]; activeId: string }> =>
     ipcRenderer.invoke('theme:state'),
   activateTheme: (id: string): Promise<{ active: ThemeFile; themes: ThemeSummary[]; activeId: string }> =>
@@ -94,6 +125,11 @@ const api = {
   reloadBrowser: () => ipcRenderer.invoke('browser:reload') as Promise<BrowserState>,
   stopBrowser: () => ipcRenderer.invoke('browser:stop') as Promise<BrowserState>,
   clearBrowserData: () => ipcRenderer.invoke('browser:clearData') as Promise<BrowserState>,
+  startBrowserAnnotate: () =>
+    ipcRenderer.invoke('browser:annotateStart') as Promise<BrowserAnnotationHit | null>,
+  cancelBrowserAnnotate: () => ipcRenderer.invoke('browser:annotateCancel') as Promise<void>,
+  transcribeYoutube: (url: string, lang?: string) =>
+    ipcRenderer.invoke('youtube:transcribe', { url, lang }) as Promise<YoutubeTranscriptResult>,
   onBrowserState: (listener: (state: BrowserState) => void) => {
     const wrapped = (_event: unknown, payload: BrowserState): void => listener(payload)
     ipcRenderer.on('browser:state', wrapped)
@@ -141,7 +177,27 @@ const api = {
       ipcRenderer.removeListener('git:summaries', wrapped)
     }
   },
+  getKnowledgeSnapshot: (projectId: string) =>
+    ipcRenderer.invoke('knowledge:snapshot', projectId) as Promise<KnowledgeSnapshot>,
+  rebuildKnowledge: (projectId: string) =>
+    ipcRenderer.invoke('knowledge:rebuild', projectId) as Promise<KnowledgeSnapshot>,
+  getKnowledgeNote: (projectId: string, path: string) =>
+    ipcRenderer.invoke('knowledge:note', { projectId, path }) as Promise<KnowledgeNote | null>,
+  openKnowledgeVault: (projectId: string) =>
+    ipcRenderer.invoke('knowledge:openVault', projectId) as Promise<boolean>,
+  revealKnowledgeVault: (projectId: string) =>
+    ipcRenderer.invoke('knowledge:revealVault', projectId) as Promise<boolean>,
+  setKnowledgeActiveProject: (projectId: string | null) =>
+    ipcRenderer.invoke('knowledge:setActive', projectId) as Promise<boolean>,
+  onKnowledgeSnapshot: (listener: (snapshot: KnowledgeSnapshot) => void) => {
+    const wrapped = (_event: unknown, payload: KnowledgeSnapshot): void => listener(payload)
+    ipcRenderer.on('knowledge:snapshot', wrapped)
+    return () => {
+      ipcRenderer.removeListener('knowledge:snapshot', wrapped)
+    }
+  },
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url) as Promise<boolean>,
+  getUsage: () => ipcRenderer.invoke('usage:get') as Promise<UsageSnapshot>,
   quitApp: () => ipcRenderer.invoke('app:quit') as Promise<boolean>
 }
 

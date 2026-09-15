@@ -19,10 +19,13 @@ import type {
   OrientationCard,
   PermissionMode,
   PermissionRequest,
+  PlanVerdict,
   Project,
+  UserQuestionRequest,
   ProjectIndex,
   PublicSettings,
   UpdateProjectInput,
+  VoiceSettings,
   WorkspaceSnapshot
 } from '../../shared/types'
 import { normalizePermissionMode } from '../../shared/types'
@@ -43,19 +46,22 @@ type WorkspaceContextValue = {
   activeChatId: string | null
   activeProjectId: string | null
   chatsById: Record<string, Chat>
-  streams: Record<string, StreamState>
   showNewProject: boolean
   showSettings: boolean
+  showUsage: boolean
   showActivity: boolean
   showBrowser: boolean
   showGit: boolean
+  showKnowledge: boolean
   gitSummaries: Record<string, GitSummary>
   rightPaneOrder: RightPaneId[]
   setShowNewProject: (open: boolean) => void
   setShowSettings: (open: boolean) => void
+  setShowUsage: (open: boolean) => void
   setShowActivity: (open: boolean) => void
   setShowBrowser: (open: boolean) => void
   setShowGit: (open: boolean) => void
+  setShowKnowledge: (open: boolean) => void
   swapRightPanes: () => void
   selectProject: (projectId: string) => void
   openChat: (chatId: string) => Promise<void>
@@ -77,26 +83,32 @@ type WorkspaceContextValue = {
   ) => Promise<void>
   stopChat: (chatId: string) => Promise<void>
   setChatMode: (chatId: string, mode: PermissionMode) => Promise<void>
-  approvePlan: (chatId: string) => Promise<void>
+  approvePlan: (chatId: string, verdict?: PlanVerdict) => Promise<void>
   resolvePermission: (requestId: string, decision: 'allow' | 'deny') => Promise<void>
+  resolveQuestion: (
+    requestId: string,
+    decision: { type: 'skip' } | { type: 'submit'; answers: string[][] }
+  ) => Promise<void>
   rewindChat: (chatId: string, checkpointId: string) => Promise<void>
   permissions: Record<string, PermissionRequest>
-  saveSettings: (input: { apiKey?: string; model?: string }) => Promise<void>
+  questions: Record<string, UserQuestionRequest>
+  saveSettings: (input: { apiKey?: string; model?: string; voice?: Partial<VoiceSettings> }) => Promise<void>
   refresh: () => Promise<WorkspaceSnapshot>
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null)
+const StreamContext = createContext<Record<string, StreamState> | null>(null)
 
 const emptyStream: StreamState = { status: 'idle', draft: '', error: null }
 
-export type RightPaneId = 'git' | 'browser' | 'activity'
+export type RightPaneId = 'git' | 'browser' | 'activity' | 'knowledge'
 
 const SESSION_KEY = 'grokcode.session'
 const PANE_ORDER_KEY = 'grokcode.rightPaneOrder'
-const DEFAULT_PANE_ORDER: RightPaneId[] = ['git', 'browser', 'activity']
+const DEFAULT_PANE_ORDER: RightPaneId[] = ['git', 'browser', 'activity', 'knowledge']
 
 function isPaneId(value: string): value is RightPaneId {
-  return value === 'git' || value === 'browser' || value === 'activity'
+  return value === 'git' || value === 'browser' || value === 'activity' || value === 'knowledge'
 }
 
 function readPaneOrder(): RightPaneId[] {
@@ -156,10 +168,68 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [chatsById, setChatsById] = useState<Record<string, Chat>>({})
   const [streams, setStreams] = useState<Record<string, StreamState>>({})
+  const streamsRef = useRef(streams)
+  streamsRef.current = streams
   const sending = useRef(new Set<string>())
+  const deltaBuf = useRef<Record<string, string>>({})
+  const asideBuf = useRef<Record<string, { messageId: string; text: string }>>({})
+  const streamFlush = useRef(0)
+
+  const flushStreamBuf = useCallback(() => {
+    if (streamFlush.current) {
+      window.clearTimeout(streamFlush.current)
+      streamFlush.current = 0
+    }
+    const deltas = deltaBuf.current
+    deltaBuf.current = {}
+    const asides = asideBuf.current
+    asideBuf.current = {}
+    const deltaIds = Object.keys(deltas)
+    if (deltaIds.length > 0) {
+      setStreams((current) => {
+        let next = current
+        for (const chatId of deltaIds) {
+          const text = deltas[chatId]
+          if (!text) continue
+          if (next === current) next = { ...current }
+          const prev = next[chatId] ?? emptyStream
+          next[chatId] = { status: 'streaming', draft: prev.draft + text, error: null }
+        }
+        return next
+      })
+    }
+    const asideIds = Object.keys(asides)
+    if (asideIds.length > 0) {
+      setChatsById((current) => {
+        let next = current
+        for (const chatId of asideIds) {
+          const pending = asides[chatId]
+          const chat = next[chatId]
+          if (!pending || !chat) continue
+          if (next === current) next = { ...current }
+          next[chatId] = {
+            ...chat,
+            messages: chat.messages.map((message) =>
+              message.id === pending.messageId
+                ? { ...message, content: message.content + pending.text }
+                : message
+            )
+          }
+        }
+        return next
+      })
+    }
+  }, [])
+
+  const queueStreamFlush = useCallback(() => {
+    if (streamFlush.current) return
+    streamFlush.current = window.setTimeout(flushStreamBuf, 50)
+  }, [flushStreamBuf])
   const [permissions, setPermissions] = useState<Record<string, PermissionRequest>>({})
+  const [questions, setQuestions] = useState<Record<string, UserQuestionRequest>>({})
   const [showNewProject, setShowNewProject] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showUsage, setShowUsage] = useState(false)
   const [showActivity, setShowActivityState] = useState(() => {
     return localStorage.getItem('grokcode.showActivity') === '1'
   })
@@ -181,6 +251,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
     setShowGitState(open)
     localStorage.setItem('grokcode.showGit', open ? '1' : '0')
   }, [])
+  const [showKnowledge, setShowKnowledgeState] = useState(() => {
+    return localStorage.getItem('grokcode.showKnowledge') === '1'
+  })
+  const setShowKnowledge = useCallback((open: boolean) => {
+    setShowKnowledgeState(open)
+    localStorage.setItem('grokcode.showKnowledge', open ? '1' : '0')
+  }, [])
   const [gitSummaries, setGitSummaries] = useState<Record<string, GitSummary>>({})
   const [rightPaneOrder, setRightPaneOrder] = useState<RightPaneId[]>(readPaneOrder)
   const swapRightPanes = useCallback(() => {
@@ -201,6 +278,29 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
     () => window.grokcode.onBrowserRequestShow?.(() => setShowBrowser(true)),
     [setShowBrowser]
   )
+
+  useEffect(() => {
+    function onClick(event: MouseEvent): void {
+      if (event.defaultPrevented || event.button !== 0) return
+      const target = event.target
+      if (!(target instanceof Element)) return
+      const anchor = target.closest('a[href]')
+      if (!(anchor instanceof HTMLAnchorElement)) return
+      let url: URL
+      try {
+        url = new URL(anchor.href)
+      } catch {
+        return
+      }
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') return
+      if (url.origin === window.location.origin) return
+      event.preventDefault()
+      void window.grokcode.navigateBrowser(url.href)
+    }
+
+    document.addEventListener('click', onClick, true)
+    return () => document.removeEventListener('click', onClick, true)
+  }, [])
 
   useEffect(() => {
     void window.grokcode.getGitSummaries().then(setGitSummaries)
@@ -253,6 +353,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
   }, [ready, openChatIds, activeChatId, activeProjectId])
 
   useEffect(() => {
+    return () => {
+      if (streamFlush.current) window.clearTimeout(streamFlush.current)
+    }
+  }, [])
+
+  useEffect(() => {
     return window.grokcode.onIndexEvent((event: IndexEvent) => {
       setIndexes((current) => ({ ...current, [event.projectId]: event.index }))
     })
@@ -261,26 +367,33 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
   useEffect(() => {
     return window.grokcode.onChatEvent((event: ChatEvent) => {
       if (event.type === 'delta') {
-        setStreams((current) => {
-          const prev = current[event.chatId] ?? emptyStream
-          return {
-            ...current,
-            [event.chatId]: {
-              status: 'streaming',
-              draft: prev.draft + event.text,
-              error: null
-            }
-          }
-        })
+        deltaBuf.current[event.chatId] = (deltaBuf.current[event.chatId] ?? '') + event.text
+        queueStreamFlush()
         return
       }
       if (event.type === 'done') {
+        flushStreamBuf()
         setChatsById((current) => ({ ...current, [event.chatId]: event.chat }))
         setStreams((current) => ({
           ...current,
           [event.chatId]: emptyStream
         }))
         void refresh()
+        return
+      }
+      if (event.type === 'aside-delta') {
+        const prev = asideBuf.current[event.chatId]
+        if (prev && prev.messageId === event.messageId) {
+          prev.text += event.text
+        } else {
+          asideBuf.current[event.chatId] = { messageId: event.messageId, text: event.text }
+        }
+        queueStreamFlush()
+        return
+      }
+      if (event.type === 'aside-done') {
+        flushStreamBuf()
+        setChatsById((current) => ({ ...current, [event.chatId]: event.chat }))
         return
       }
       if (event.type === 'plan') {
@@ -297,6 +410,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
       }
       if (event.type === 'permission-clear') {
         setPermissions((current) => {
+          const existing = current[event.chatId]
+          if (!existing || existing.requestId !== event.requestId) return current
+          const next = { ...current }
+          delete next[event.chatId]
+          return next
+        })
+        return
+      }
+      if (event.type === 'question') {
+        setQuestions((current) => ({ ...current, [event.chatId]: event.request }))
+        return
+      }
+      if (event.type === 'question-clear') {
+        setQuestions((current) => {
           const existing = current[event.chatId]
           if (!existing || existing.requestId !== event.requestId) return current
           const next = { ...current }
@@ -326,6 +453,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
         })
         return
       }
+      flushStreamBuf()
       setStreams((current) => ({
         ...current,
         [event.chatId]: {
@@ -335,7 +463,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
         }
       }))
     })
-  }, [refresh])
+  }, [flushStreamBuf, queueStreamFlush, refresh])
 
   const openChat = useCallback(async (chatId: string) => {
     const chat = chatsById[chatId] ?? (await window.grokcode.getChat(chatId))
@@ -344,6 +472,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
     setActiveProjectId(chat.projectId)
     setOpenChatIds((current) => (current.includes(chatId) ? current : [...current, chatId]))
   }, [chatsById])
+
+  useEffect(() => {
+    if (!ready || !activeChatId || !activeProjectId) return
+    void window.grokcode.ensureProjectIntake(activeProjectId, activeChatId)
+  }, [ready, activeChatId, activeProjectId])
 
   const closeTab = useCallback((chatId: string) => {
     setOpenChatIds((current) => {
@@ -442,17 +575,21 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
 
   const sendMessage = useCallback(
     async (chatId: string, content: string, attachments?: Attachment[], mentions?: FileMention[]) => {
-      if (sending.current.has(chatId)) return
-      sending.current.add(chatId)
-      setStreams((current) => ({
-        ...current,
-        [chatId]: { status: 'streaming', draft: '', error: null }
-      }))
+      const asAside = streamsRef.current[chatId]?.status === 'streaming'
+      if (!asAside) {
+        if (sending.current.has(chatId)) return
+        sending.current.add(chatId)
+        setStreams((current) => ({
+          ...current,
+          [chatId]: { status: 'streaming', draft: '', error: null }
+        }))
+      }
       try {
         const chat = await window.grokcode.sendMessage(chatId, content, attachments, mentions)
         setChatsById((current) => ({ ...current, [chatId]: chat }))
-        await refresh()
+        if (!asAside) await refresh()
       } catch (error) {
+        if (asAside) return
         const raw = error instanceof Error ? error.message : 'Could not send'
         const message = raw.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
         setStreams((current) => ({
@@ -460,7 +597,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
           [chatId]: { status: 'error', draft: '', error: message }
         }))
       } finally {
-        sending.current.delete(chatId)
+        if (!asAside) sending.current.delete(chatId)
       }
     },
     [refresh]
@@ -468,7 +605,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
 
   const stopChat = useCallback(async (chatId: string) => {
     await window.grokcode.stopChat(chatId)
+    setStreams((current) => ({ ...current, [chatId]: emptyStream }))
     setPermissions((current) => {
+      if (!current[chatId]) return current
+      const next = { ...current }
+      delete next[chatId]
+      return next
+    })
+    setQuestions((current) => {
       if (!current[chatId]) return current
       const next = { ...current }
       delete next[chatId]
@@ -486,18 +630,41 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
   }, [])
 
   const approvePlan = useCallback(
-    async (chatId: string) => {
-      if (sending.current.has(chatId)) return
-      await stopChat(chatId)
-      await setChatMode(chatId, 'accept')
-      await sendMessage(chatId, 'Implement the approved plan. Start now.')
+    async (chatId: string, verdict: PlanVerdict = 'approve') => {
+      const continued = await window.grokcode.resolvePlanApproval(chatId, verdict)
+      const chat = await window.grokcode.getChat(chatId)
+      setChatsById((current) => ({ ...current, [chatId]: chat }))
+      setChats((current) =>
+        current.map((item) =>
+          item.id === chatId ? { ...item, mode: chat.mode, plan: chat.plan } : item
+        )
+      )
+      const hasBody = Boolean(chat.plan?.markdown?.trim() || (chat.plan?.entries && chat.plan.entries.length > 0))
+      if (
+        verdict === 'approve' &&
+        !continued &&
+        hasBody &&
+        streamsRef.current[chatId]?.status !== 'streaming'
+      ) {
+        await sendMessage(chatId, 'Implement the approved plan. Start now.')
+      }
     },
-    [sendMessage, setChatMode, stopChat]
+    [sendMessage]
   )
 
   const resolvePermission = useCallback(async (requestId: string, decision: 'allow' | 'deny') => {
     await window.grokcode.resolvePermission(requestId, decision)
   }, [])
+
+  const resolveQuestion = useCallback(
+    async (
+      requestId: string,
+      decision: { type: 'skip' } | { type: 'submit'; answers: string[][] }
+    ) => {
+      await window.grokcode.resolveQuestion(requestId, decision)
+    },
+    []
+  )
 
   const rewindChat = useCallback(async (chatId: string, checkpointId: string) => {
     const chat = await window.grokcode.rewindChat(chatId, checkpointId)
@@ -509,13 +676,26 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
       delete next[chatId]
       return next
     })
+    setQuestions((current) => {
+      if (!current[chatId]) return current
+      const next = { ...current }
+      delete next[chatId]
+      return next
+    })
     await refresh()
   }, [refresh])
 
-  const saveSettings = useCallback(async (input: { apiKey?: string; model?: string }) => {
-    const next = await window.grokcode.setSettings(input)
-    setSettings(next)
-  }, [])
+  const saveSettings = useCallback(
+    async (input: { apiKey?: string; model?: string; voice?: Partial<VoiceSettings> }) => {
+      const next = await window.grokcode.setSettings(input)
+      setSettings(
+        input.voice
+          ? { ...next, voice: { ...next.voice, ...input.voice } }
+          : next
+      )
+    },
+    []
+  )
 
   const value = useMemo<WorkspaceContextValue>(
     () => ({
@@ -528,19 +708,22 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
       activeChatId,
       activeProjectId,
       chatsById,
-      streams,
       showNewProject,
       showSettings,
+      showUsage,
       showActivity,
       showBrowser,
       showGit,
+      showKnowledge,
       gitSummaries,
       rightPaneOrder,
       setShowNewProject,
       setShowSettings,
+      setShowUsage,
       setShowActivity,
       setShowBrowser,
       setShowGit,
+      setShowKnowledge,
       swapRightPanes,
       selectProject,
       openChat,
@@ -559,8 +742,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
       setChatMode,
       approvePlan,
       resolvePermission,
+      resolveQuestion,
       rewindChat,
       permissions,
+      questions,
       saveSettings,
       refresh
     }),
@@ -574,17 +759,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
       activeChatId,
       activeProjectId,
       chatsById,
-      streams,
       showNewProject,
       showSettings,
+      showUsage,
       showActivity,
       showBrowser,
       showGit,
+      showKnowledge,
       gitSummaries,
       rightPaneOrder,
       setShowActivity,
       setShowBrowser,
       setShowGit,
+      setShowKnowledge,
       swapRightPanes,
       selectProject,
       openChat,
@@ -603,18 +790,30 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
       setChatMode,
       approvePlan,
       resolvePermission,
+      resolveQuestion,
       rewindChat,
       permissions,
+      questions,
       saveSettings,
       refresh
     ]
   )
 
-  return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>
+  return (
+    <WorkspaceContext.Provider value={value}>
+      <StreamContext.Provider value={streams}>{children}</StreamContext.Provider>
+    </WorkspaceContext.Provider>
+  )
 }
 
 export function useWorkspace(): WorkspaceContextValue {
   const value = useContext(WorkspaceContext)
   if (!value) throw new Error('useWorkspace must be used inside WorkspaceProvider')
+  return value
+}
+
+export function useStreams(): Record<string, StreamState> {
+  const value = useContext(StreamContext)
+  if (!value) throw new Error('useStreams must be used inside WorkspaceProvider')
   return value
 }

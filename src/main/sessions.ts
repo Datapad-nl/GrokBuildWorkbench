@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from 'fs'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import type { Message } from '../shared/types'
@@ -44,6 +44,112 @@ function visibleUserText(raw: string): string | null {
   }
   const trimmed = raw.trim()
   return trimmed || null
+}
+
+export type DiskPlan = {
+  plan: {
+    title: string
+    entries: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>
+    markdown?: string
+    awaitingApproval?: boolean
+  }
+  awaitingApproval: boolean
+  dir: string
+  markdown: string
+}
+
+function planFromMarkdown(markdown: string): DiskPlan['plan'] | null {
+  const title = markdown.match(/^#\s+(.+)$/m)?.[1]?.trim() || 'Plan'
+  const entries: DiskPlan['plan']['entries'] = []
+  const numbered = markdown.matchAll(/^\d+\.\s+\*\*(.+?)\*\*/gm)
+  for (const match of numbered) {
+    const content = match[1].replace(/`/g, '').trim()
+    if (content) entries.push({ content, status: 'pending' })
+  }
+  if (entries.length === 0) {
+    for (const match of markdown.matchAll(/^[-*]\s+\*\*(.+?)\*\*/gm)) {
+      const content = match[1].replace(/`/g, '').trim()
+      if (content) entries.push({ content, status: 'pending' })
+    }
+  }
+  if (entries.length === 0 && title === 'Plan') return null
+  return { title, entries }
+}
+
+export function findGrokSessionDir(sessionId: string): string | null {
+  const root = sessionsRoot()
+  if (!existsSync(root)) return null
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const dir = join(root, entry.name, sessionId)
+    if (existsSync(join(dir, 'summary.json')) || existsSync(join(dir, 'plan.md'))) return dir
+  }
+  return null
+}
+
+export function readGrokPlan(sessionId: string): DiskPlan | null {
+  const dir = findGrokSessionDir(sessionId)
+  if (!dir) return null
+  let awaitingApproval = false
+  const modePath = join(dir, 'plan_mode.json')
+  if (existsSync(modePath)) {
+    try {
+      const mode = JSON.parse(readFileSync(modePath, 'utf8')) as {
+        state?: string
+        awaiting_plan_approval?: boolean
+      }
+      awaitingApproval = Boolean(mode.awaiting_plan_approval)
+    } catch {
+      // ignore corrupt plan_mode
+    }
+  }
+  const planPath = join(dir, 'plan.md')
+  let markdown = ''
+  if (existsSync(planPath)) {
+    try {
+      markdown = readFileSync(planPath, 'utf8')
+    } catch {
+      markdown = ''
+    }
+  }
+  if (!markdown.trim() && !awaitingApproval) return null
+  const parsed = planFromMarkdown(markdown)
+  const plan = parsed ?? {
+    title: markdown.trim() ? markdown.match(/^#\s+(.+)$/m)?.[1]?.trim() || 'Plan' : 'No plan written yet',
+    entries: [] as DiskPlan['plan']['entries']
+  }
+  return {
+    plan: { ...plan, markdown, awaitingApproval },
+    awaitingApproval,
+    dir,
+    markdown
+  }
+}
+
+export function clearGrokPlanApproval(sessionId: string): void {
+  const dir = findGrokSessionDir(sessionId)
+  if (!dir) return
+  const modePath = join(dir, 'plan_mode.json')
+  if (!existsSync(modePath)) return
+  try {
+    const mode = JSON.parse(readFileSync(modePath, 'utf8')) as Record<string, unknown>
+    writeFileSync(
+      modePath,
+      JSON.stringify(
+        {
+          ...mode,
+          state: 'Inactive',
+          awaiting_plan_approval: false,
+          pending_exit_reminder: false
+        },
+        null,
+        2
+      ),
+      'utf8'
+    )
+  } catch {
+    // leave the file if it cannot be rewritten
+  }
 }
 
 export function grokBuildSignedIn(): boolean {

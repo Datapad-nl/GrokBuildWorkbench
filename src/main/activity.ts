@@ -43,6 +43,31 @@ function broadcast(feed: ActivityFeed): void {
   }
 }
 
+const pendingBroadcasts = new Map<string, ActivityEvent>()
+let broadcastTimer: ReturnType<typeof setTimeout> | null = null
+
+function flushBroadcasts(): void {
+  if (broadcastTimer) {
+    clearTimeout(broadcastTimer)
+    broadcastTimer = null
+  }
+  if (pendingBroadcasts.size === 0) return
+  const batch = [...pendingBroadcasts.values()]
+  pendingBroadcasts.clear()
+  for (const event of batch) broadcast({ type: 'upsert', event })
+}
+
+function publish(event: ActivityEvent): void {
+  const batch = (event.kind === 'thought' || event.kind === 'write') && event.status === 'running'
+  if (batch) {
+    pendingBroadcasts.set(event.id, event)
+    if (!broadcastTimer) broadcastTimer = setTimeout(flushBroadcasts, 80)
+    return
+  }
+  flushBroadcasts()
+  broadcast({ type: 'upsert', event })
+}
+
 function joinText(previous: string | null, next: string | null): string | null {
   if (!previous) return next
   if (!next) return previous
@@ -84,14 +109,14 @@ function emitActivity(
           incoming.diffs && incoming.diffs.length > 0 ? incoming.diffs : previous.diffs
       }
       events[index] = merged
-      broadcast({ type: 'upsert', event: merged })
+      publish(merged)
       return merged
     }
   }
 
   events.push(incoming)
   if (events.length > MAX_EVENTS) events.shift()
-  broadcast({ type: 'upsert', event: incoming })
+  publish(incoming)
   return incoming
 }
 
@@ -185,6 +210,7 @@ export function getActivitySnapshot(): ActivitySnapshot {
 }
 
 export function clearActivity(): ActivitySnapshot {
+  flushBroadcasts()
   events.length = 0
   broadcast({ type: 'reset', events: [] })
   return getActivitySnapshot()

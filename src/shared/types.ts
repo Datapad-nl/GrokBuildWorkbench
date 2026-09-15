@@ -28,6 +28,7 @@ export type Message = {
   id: string
   role: 'user' | 'assistant'
   content: string
+  kind?: 'btw' | 'steer'
   attachments?: Attachment[]
   mentions?: FileMention[]
   createdAt: string
@@ -43,7 +44,11 @@ export type PlanEntry = {
 export type ChatPlan = {
   title: string
   entries: PlanEntry[]
+  markdown?: string
+  awaitingApproval?: boolean
 }
+
+export type PlanVerdict = 'approve' | 'revise' | 'abandon'
 
 export type PermissionRequest = {
   requestId: string
@@ -52,6 +57,48 @@ export type PermissionRequest = {
   detail: string | null
   toolKind: string | null
 }
+
+export type UserQuestionOption = {
+  label: string
+  description: string | null
+  preview: string | null
+}
+
+export type UserQuestion = {
+  question: string
+  header: string | null
+  multiSelect: boolean
+  options: UserQuestionOption[]
+}
+
+export type UserQuestionRequest = {
+  requestId: string
+  chatId: string
+  questions: UserQuestion[]
+  title?: string | null
+}
+
+export type ProjectIntakeStatus = 'completed' | 'skipped'
+
+export type ProjectIntakeAnswer = {
+  question: string
+  values: string[]
+  source?: string | null
+}
+
+export type ProjectIntakeRound = {
+  title: string
+  answers: ProjectIntakeAnswer[]
+}
+
+export type ProjectIntake = {
+  projectId: string
+  status: ProjectIntakeStatus
+  updatedAt: string
+  rounds: ProjectIntakeRound[]
+}
+
+export type UserQuestionAnswer = string[]
 
 export type Checkpoint = {
   id: string
@@ -83,12 +130,75 @@ export type ChatSummary = Omit<Chat, 'messages'> & {
   messageCount: number
 }
 
+export type VoiceSettings = {
+  enabled: boolean
+  speakReplies: boolean
+  autoSend: boolean
+  handsFree: boolean
+  conversation: boolean
+  voiceURI: string
+  micDeviceId: string
+  rate: number
+}
+
+export const DEFAULT_VOICE: VoiceSettings = {
+  enabled: false,
+  speakReplies: true,
+  autoSend: true,
+  handsFree: false,
+  conversation: false,
+  voiceURI: 'M1',
+  micDeviceId: '',
+  rate: 1
+}
+
+const NEURAL_VOICE = /^(F|M)[1-5]$/
+
+export type VoiceModelStatus = {
+  ready: boolean
+  downloading: boolean
+  error: string | null
+  file: string | null
+  loadedBytes: number
+  totalBytes: number
+}
+
 export type PublicSettings = {
   hasKey: boolean
   keyPreview: string | null
   model: string
   keySource: 'grok-build' | 'env' | 'settings' | 'none'
   grokBuildSignedIn: boolean
+  voice: VoiceSettings
+}
+
+export type UsagePeriodKind = 'weekly' | 'monthly' | 'unknown'
+
+export type UsageSnapshot = {
+  tier: string | null
+  usedPercent: number | null
+  period: UsagePeriodKind
+  periodStart: string | null
+  periodEnd: string | null
+  prepaidBalance: number | null
+  onDemandCap: number | null
+  onDemandUsed: number | null
+  unifiedBilling: boolean
+}
+
+export function normalizeVoiceSettings(value: unknown): VoiceSettings {
+  const raw = value && typeof value === 'object' ? (value as Partial<VoiceSettings>) : {}
+  const rate = typeof raw.rate === 'number' && Number.isFinite(raw.rate) ? raw.rate : DEFAULT_VOICE.rate
+  return {
+    enabled: Boolean(raw.enabled),
+    speakReplies: raw.speakReplies !== false,
+    autoSend: raw.autoSend !== false,
+    handsFree: Boolean(raw.handsFree),
+    conversation: Boolean(raw.conversation),
+    voiceURI: typeof raw.voiceURI === 'string' && NEURAL_VOICE.test(raw.voiceURI) ? raw.voiceURI : DEFAULT_VOICE.voiceURI,
+    micDeviceId: typeof raw.micDeviceId === 'string' ? raw.micDeviceId : '',
+    rate: Math.min(2, Math.max(0.7, rate))
+  }
 }
 
 export type IndexState =
@@ -144,7 +254,11 @@ export type ChatEvent =
   | { type: 'plan'; chatId: string; plan: ChatPlan }
   | { type: 'permission'; chatId: string; request: PermissionRequest }
   | { type: 'permission-clear'; chatId: string; requestId: string }
+  | { type: 'question'; chatId: string; request: UserQuestionRequest }
+  | { type: 'question-clear'; chatId: string; requestId: string }
   | { type: 'chat'; chatId: string; chat: Chat }
+  | { type: 'aside-delta'; chatId: string; messageId: string; text: string }
+  | { type: 'aside-done'; chatId: string; chat: Chat }
 
 export function normalizePermissionMode(value: unknown): PermissionMode {
   if (value === 'ask' || value === 'accept' || value === 'plan') return value
@@ -220,6 +334,17 @@ export type BrowserState = {
   error: string | null
 }
 
+export type BrowserAnnotationHit = {
+  url: string
+  title: string
+  selector: string
+  tag: string
+  text: string
+  html: string
+  rect: { x: number; y: number; width: number; height: number }
+  screenshotData: string
+}
+
 export const DEFAULT_MODEL = 'grok-4.6'
 
 export type GitChangeKind =
@@ -287,4 +412,37 @@ export type GitActionResult = {
   ok: boolean
   error: string | null
   snapshot: GitSnapshot
+}
+
+export type KnowledgeReason = 'ok' | 'no-folder' | 'error'
+
+export type KnowledgeNodeKind = 'home' | 'generated' | 'note'
+
+export type KnowledgeNode = {
+  id: string
+  title: string
+  kind: KnowledgeNodeKind
+  path: string
+  tags: string[]
+}
+
+export type KnowledgeEdge = {
+  from: string
+  to: string
+}
+
+export type KnowledgeSnapshot = {
+  projectId: string | null
+  path: string | null
+  available: boolean
+  reason: KnowledgeReason
+  error: string | null
+  nodes: KnowledgeNode[]
+  edges: KnowledgeEdge[]
+}
+
+export type KnowledgeNote = {
+  path: string
+  title: string
+  body: string
 }
