@@ -1,7 +1,7 @@
 # Grok Build Workbench
 
 Unofficial desktop for [Grok Build](https://grok.com/build). Projects in a sidebar, multiple chats at once.
-Thought process window, Browser window, Git Window
+Thought process window, Browser window, Git Window. Talk to Grok with local voice.
 
 Not affiliated with, endorsed by, or sponsored by SpaceXAI / xAI. “Grok” and “Grok Build” are their marks.
 
@@ -23,6 +23,13 @@ Chats are real Grok Build sessions. Sessions already on disk for a folder show u
 
 - Native window; size and pane layout persist
 - Projects in a sidebar, each with an optional local folder, color, and rename
+
+**Voice**
+
+- Talk to Grok on this machine. Listening uses a local Whisper model; replies use your system voice. Audio never leaves the computer
+- Conversation mode: a live loop — listen, send as you talk, speak replies, interrupt
+- Speak replies, send when you stop talking, and keep listening after replies
+- Mic, voice, and speed in Settings. Turn on Voice, then use the Conversation button in the chat
 
 **Chats**
 
@@ -46,7 +53,6 @@ Chats are real Grok Build sessions. Sessions already on disk for a folder show u
 - Markdown replies, `@file` / folder mentions, pasted screenshots and attachments
 - Slash-command palette: `/new`, `/rewind`, `/plan`, `/ask`, `/always-approve`, `/commit`, `/review`, `/compact`, `/model`, `/settings`, `/usage`, `/transcribe`, `/imagine`, `/btw`, `/memory`, workflows, and more
 - Steer a running task, or `/btw` a side question without dropping it
-- Local voice: listen, speak replies, auto-send, hands-free, conversation mode
 
 **Settings**
 
