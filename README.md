@@ -5,6 +5,8 @@ Thought process window, Browser window, Git Window
 
 Not affiliated with, endorsed by, or sponsored by SpaceXAI / xAI. “Grok” and “Grok Build” are their marks.
 
+![Grok Build Workbench](docs/screenshot.png)
+
 ## Run
 
 1. Install the [Grok Build CLI](https://x.ai/news/grok-build-cli) and sign in: `grok login` (SuperGrok).
