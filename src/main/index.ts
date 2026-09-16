@@ -49,12 +49,15 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.webContents.session.setPermissionCheckHandler((_contents, permission) => {
+  function isMicPermission(permission: string): boolean {
     return permission === 'media' || permission === 'audioCapture' || permission === 'microphone'
+  }
+
+  mainWindow.webContents.session.setPermissionCheckHandler((_contents, permission) => {
+    return isMicPermission(permission)
   })
   mainWindow.webContents.session.setPermissionRequestHandler((_contents, permission, callback) => {
-    const mic =
-      permission === 'media' || permission === 'audioCapture' || permission === 'microphone'
+    const mic = isMicPermission(permission)
     callback(mic)
     if (mic && getMicAccess() !== 'granted') void ensureMicAccess()
   })

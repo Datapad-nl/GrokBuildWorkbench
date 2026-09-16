@@ -14,10 +14,12 @@ export function VoiceBlob({
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
+    const node = canvasRef.current
+    if (!node) return
+    const gfx = node.getContext('2d')
+    if (!gfx) return
+    const canvas: HTMLCanvasElement = node
+    const ctx: CanvasRenderingContext2D = gfx
 
     let raf = 0
     let t = 0
