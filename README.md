@@ -19,12 +19,41 @@ Chats are real Grok Build sessions. Sessions already on disk for a folder show u
 
 ## What works now
 
-- Native desktop window
-- Projects, optional local folder
+**Desktop**
+
+- Native window; size and pane layout persist
+- Projects in a sidebar, each with an optional local folder, color, and rename
+
+**Chats**
+
 - Multiple chats per project
 - Concurrent streams: switch tabs without cancelling
-- In-app browser, Git pane, worktree isolation, checkpoints, slash commands
-- Grok 4.6 by default
+- Real Grok Build sessions — sessions already on disk for a folder show up in that project
+- Ask / Auto / Plan permission modes, including plan cards you can approve, revise, or abandon
+- Isolated git worktrees so concurrent chats on the same repo do not clobber each other
+- Checkpoints and rewind of files plus later messages
+- First-run project briefing, Codegraph index status, and an orientation card
+
+**Panes**
+
+- Thought process: live tool and activity stream
+- Browser: in-app webview the agent can drive; pick and annotate a page element; screenshots; YouTube captions; clear cookies
+- Git: branch, ahead/behind, commit graph, diffs, stage / unstage / discard, commit, checkout, new branch
+- Knowledge: Obsidian-compatible `knowledge/` vault with a graph pane and generated maps
+
+**Composer**
+
+- Markdown replies, `@file` / folder mentions, pasted screenshots and attachments
+- Slash-command palette: `/new`, `/rewind`, `/plan`, `/ask`, `/always-approve`, `/commit`, `/review`, `/compact`, `/model`, `/settings`, `/usage`, `/transcribe`, `/imagine`, `/btw`, `/memory`, workflows, and more
+- Steer a running task, or `/btw` a side question without dropping it
+- Local voice: listen, speak replies, auto-send, hands-free, conversation mode
+
+**Settings**
+
+- Sign in with `grok login` (SuperGrok); optional API-key fallback
+- Model picker (Grok 4.6 by default)
+- Appearance: built-in themes plus import and export of custom themes
+- Usage snapshot in the status bar
 
 ## License
 
