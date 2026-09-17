@@ -139,6 +139,15 @@ async function getTts(): Promise<TtsPipeline> {
   }
 }
 
+function expandSpokenContractions(text: string): string {
+  return text
+    .replace(/[\u2018\u2019\u2032]/g, "'")
+    .replace(/\b(I|you|we|they|he|she|who)'ll\b/gi, (_full, pronoun: string) => {
+      const spoken = pronoun.toLowerCase() === 'i' ? 'I' : pronoun
+      return `${spoken} will`
+    })
+}
+
 export function speakableText(markdown: string): string {
   let text = markdown.replace(/```[\s\S]*?```/g, ' ')
   text = text.replace(/`[^`]+`/g, ' ')
@@ -150,6 +159,7 @@ export function speakableText(markdown: string): string {
   text = text.replace(/[*_~>]+/g, '')
   text = text.replace(/\n{2,}/g, '. ')
   text = text.replace(/\s+/g, ' ').trim()
+  text = expandSpokenContractions(text)
   if (text.length > 2500) text = `${text.slice(0, 2500).trim()}…`
   return text
 }
