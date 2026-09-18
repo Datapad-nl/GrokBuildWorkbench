@@ -1,9 +1,9 @@
 ---
 tags:
-  - grokcode
+  - grok-build-workbench
   - generated
   - overview
-grokcode_generated: true
+workbench_generated: true
 ---
 
 # Overview

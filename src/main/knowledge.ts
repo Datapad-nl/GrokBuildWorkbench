@@ -39,8 +39,10 @@ const IGNORE = new Set([
 ])
 
 const RESERVED = new Set(['home', 'overview', 'architecture', 'stack', 'rules'])
-const MARK_START = '%% grokcode:start %%'
-const MARK_END = '%% grokcode:end %%'
+const MARK_START = '%% grok-build-workbench:start %%'
+const MARK_END = '%% grok-build-workbench:end %%'
+const LEGACY_MARK_START = '%% grokcode:start %%'
+const LEGACY_MARK_END = '%% grokcode:end %%'
 const WATCH_MS = 400
 const MAX_NOTES = 200
 const MAX_AREAS = 16
@@ -337,12 +339,12 @@ async function ensureObsidian(vault: string): Promise<void> {
 }
 
 function generatedNote(title: string, extraTags: string[], body: string): string {
-  const tags = ['grokcode', 'generated', ...extraTags]
+  const tags = ['grok-build-workbench', 'generated', ...extraTags]
   return [
     '---',
     'tags:',
     ...tags.map((tag) => `  - ${tag}`),
-    'grokcode_generated: true',
+    'workbench_generated: true',
     '---',
     '',
     `# ${title}`,
@@ -448,7 +450,7 @@ async function patchHome(vault: string, projectName: string, block: string): Pro
     '---',
     'tags:',
     '  - map',
-    '  - grokcode',
+    '  - grok-build-workbench',
     '---',
     '',
     `# ${projectName}`,
@@ -467,21 +469,34 @@ async function patchHome(vault: string, projectName: string, block: string): Pro
     await writeFile(path, `${header}\n${section}`, 'utf8')
     return
   }
-  const start = current.indexOf(MARK_START)
-  const end = current.indexOf(MARK_END)
-  if (start >= 0 && end > start) {
-    const next = syncHomeTitle(
-      `${current.slice(0, start)}${section}${current.slice(end + MARK_END.length).replace(/^\n/, '')}`,
+  const bounds = findHomeSection(current)
+  if (bounds) {
+    const next = syncHomeBranding(
+      `${current.slice(0, bounds.start)}${section}${current.slice(bounds.end + bounds.endLen).replace(/^\n/, '')}`,
       projectName
     )
     await writeFile(path, next, 'utf8')
     return
   }
-  await writeFile(path, `${syncHomeTitle(current.trimEnd(), projectName)}\n\n${section}`, 'utf8')
+  await writeFile(path, `${syncHomeBranding(current.trimEnd(), projectName)}\n\n${section}`, 'utf8')
 }
 
-function syncHomeTitle(markdown: string, projectName: string): string {
-  return markdown.replace(/^# .+$/m, `# ${projectName}`)
+function findHomeSection(markdown: string): { start: number; end: number; endLen: number } | null {
+  for (const [startMark, endMark] of [
+    [MARK_START, MARK_END],
+    [LEGACY_MARK_START, LEGACY_MARK_END]
+  ]) {
+    const start = markdown.indexOf(startMark)
+    const end = markdown.indexOf(endMark)
+    if (start >= 0 && end > start) return { start, end, endLen: endMark.length }
+  }
+  return null
+}
+
+function syncHomeBranding(markdown: string, projectName: string): string {
+  return markdown
+    .replace(/^# .+$/m, `# ${projectName}`)
+    .replace(/^(\s+- )grokcode$/m, '$1grok-build-workbench')
 }
 
 async function writeGenerated(vault: string, fileName: string, contents: string): Promise<void> {
@@ -513,7 +528,7 @@ async function ensureStarterNote(vault: string): Promise<void> {
     [
       '---',
       'tags:',
-      '  - grokcode',
+      '  - grok-build-workbench',
       '---',
       '',
       '# How to use this vault',
