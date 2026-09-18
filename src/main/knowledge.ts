@@ -470,11 +470,18 @@ async function patchHome(vault: string, projectName: string, block: string): Pro
   const start = current.indexOf(MARK_START)
   const end = current.indexOf(MARK_END)
   if (start >= 0 && end > start) {
-    const next = `${current.slice(0, start)}${section}${current.slice(end + MARK_END.length).replace(/^\n/, '')}`
+    const next = syncHomeTitle(
+      `${current.slice(0, start)}${section}${current.slice(end + MARK_END.length).replace(/^\n/, '')}`,
+      projectName
+    )
     await writeFile(path, next, 'utf8')
     return
   }
-  await writeFile(path, `${current.trimEnd()}\n\n${section}`, 'utf8')
+  await writeFile(path, `${syncHomeTitle(current.trimEnd(), projectName)}\n\n${section}`, 'utf8')
+}
+
+function syncHomeTitle(markdown: string, projectName: string): string {
+  return markdown.replace(/^# .+$/m, `# ${projectName}`)
 }
 
 async function writeGenerated(vault: string, fileName: string, contents: string): Promise<void> {

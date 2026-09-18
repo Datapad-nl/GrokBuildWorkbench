@@ -6,24 +6,21 @@ tags:
 grokcode_generated: true
 ---
 
-# design-studies
+# docs
 
 > This note is maintained by Grok Build Workbench. Add your own writing in `notes/`.
 
-Top-level area `design-studies/`.
+Top-level area `docs/`.
 
 ## Contains
 
-- `design-studies/a-brass-console.jpg`
-- `design-studies/b-signal-night.jpg`
-- `design-studies/c-warm-atelier.jpg`
-- `design-studies/index.html`
+- `docs/screenshot.png`
 
 ## Related
 
 - [[Architecture]]
 - [[Overview]]
-- [[docs]]
+- [[design-studies]]
 - [[resources]]
 - [[scripts]]
 - [[src]]

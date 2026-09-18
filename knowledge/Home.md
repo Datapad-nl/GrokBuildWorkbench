@@ -4,7 +4,7 @@ tags:
   - grokcode
 ---
 
-# GrokCode
+# Grok Build Workbench
 
 This folder is an [Obsidian](https://obsidian.md) vault. In Obsidian choose **Open folder as vault** and pick this `knowledge` directory.
 
@@ -19,6 +19,7 @@ A living map of **Grok Build Workbench**. Generated notes stay in `generated/`; 
 - [[Stack]]
 - [[Rules]]
 - [[design-studies]]
+- [[docs]]
 - [[resources]]
 - [[scripts]]
 - [[src]]

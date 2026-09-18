@@ -22,6 +22,7 @@ Top-level area `scripts/`.
 - [[Architecture]]
 - [[Overview]]
 - [[design-studies]]
+- [[docs]]
 - [[resources]]
 - [[src]]
 - [[themes]]

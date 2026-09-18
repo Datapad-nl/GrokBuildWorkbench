@@ -15,6 +15,7 @@ How **Grok Build Workbench** is laid out. Areas below are wiki-linked so the gra
 ## Areas
 
 - [[design-studies]] — `design-studies/`
+- [[docs]] — `docs/`
 - [[resources]] — `resources/`
 - [[scripts]] — `scripts/`
 - [[src]] — `src/`

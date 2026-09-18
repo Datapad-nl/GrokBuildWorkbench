@@ -24,6 +24,7 @@ Top-level area `src/`.
 - [[Architecture]]
 - [[Overview]]
 - [[design-studies]]
+- [[docs]]
 - [[resources]]
 - [[scripts]]
 - [[themes]]
