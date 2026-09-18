@@ -11,3 +11,4 @@ resources/icon.iconset
 !.env.example
 .codegraph/
 scripts/electron-ls-dist/
+design-studies/
