@@ -20,7 +20,6 @@ Top-level area `docs/`.
 
 - [[Architecture]]
 - [[Overview]]
-- [[design-studies]]
 - [[resources]]
 - [[scripts]]
 - [[src]]

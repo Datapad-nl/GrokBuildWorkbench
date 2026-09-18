@@ -35,7 +35,8 @@ const IGNORE = new Set([
   'venv',
   '.turbo',
   'coverage',
-  'knowledge'
+  'knowledge',
+  'design-studies'
 ])
 
 const RESERVED = new Set(['home', 'overview', 'architecture', 'stack', 'rules'])

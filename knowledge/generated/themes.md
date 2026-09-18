@@ -22,7 +22,6 @@ Top-level area `themes/`.
 
 - [[Architecture]]
 - [[Overview]]
-- [[design-studies]]
 - [[docs]]
 - [[resources]]
 - [[scripts]]

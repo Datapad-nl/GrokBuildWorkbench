@@ -24,7 +24,6 @@ Top-level area `resources/`.
 
 - [[Architecture]]
 - [[Overview]]
-- [[design-studies]]
 - [[docs]]
 - [[scripts]]
 - [[src]]

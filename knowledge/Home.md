@@ -18,7 +18,6 @@ A living map of **Grok Build Workbench**. Generated notes stay in `generated/`; 
 - [[Architecture]]
 - [[Stack]]
 - [[Rules]]
-- [[design-studies]]
 - [[docs]]
 - [[resources]]
 - [[scripts]]
