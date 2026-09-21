@@ -25,6 +25,28 @@ Chats are real Grok Build sessions. Sessions already on disk for a folder show u
 
 `npm run typecheck` is the compile gate. `npm run build` emits the Electron bundle to `out/`. It does not produce a distributable Mac app.
 
+## Index your code
+
+Workbench uses the [Codegraph](https://github.com/colbymchenry/codegraph) CLI to index a project folder (file count, symbols, orientation card). Install it once on your machine.
+
+macOS / Linux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.ps1 | iex
+```
+
+Or, if you already have Node: `npm i -g @colbymchenry/codegraph`
+
+Open a new terminal after install so `codegraph` is on your PATH, then restart Workbench. If the binary is not on PATH, set `CODEGRAPH_BIN` in `.env` to its full path.
+
+You do not need `codegraph install` — that wires other agents. Attach a folder to a project; Workbench runs `codegraph init` itself. If the CLI is missing, it will try the install script, then the npm package.
+
 ## What works now
 
 **Desktop**
