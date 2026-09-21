@@ -16,6 +16,7 @@ import {
 } from '../shared/types'
 import { isUnsafeProjectPath, queueIndex } from './codegraph'
 import { id, now } from './ids'
+import { getGrokCliInfo } from './grokCli'
 import { grokBuildSignedIn, listGrokSessions, readGrokHistory, readGrokPlan } from './sessions'
 
 type SettingsFile = {
@@ -198,6 +199,7 @@ export async function getPublicSettings(): Promise<PublicSettings> {
   const signedIn = grokBuildSignedIn()
   const model = file.model || DEFAULT_MODEL
   const voice = file.voice
+  const grokCli = await getGrokCliInfo()
   if (signedIn) {
     return {
       hasKey: true,
@@ -205,7 +207,8 @@ export async function getPublicSettings(): Promise<PublicSettings> {
       model,
       keySource: 'grok-build',
       grokBuildSignedIn: true,
-      voice
+      voice,
+      grokCli
     }
   }
   if (envKey) {
@@ -215,7 +218,8 @@ export async function getPublicSettings(): Promise<PublicSettings> {
       model,
       keySource: 'env',
       grokBuildSignedIn: false,
-      voice
+      voice,
+      grokCli
     }
   }
   if (stored) {
@@ -225,7 +229,8 @@ export async function getPublicSettings(): Promise<PublicSettings> {
       model,
       keySource: 'settings',
       grokBuildSignedIn: false,
-      voice
+      voice,
+      grokCli
     }
   }
   return {
@@ -234,7 +239,8 @@ export async function getPublicSettings(): Promise<PublicSettings> {
     model,
     keySource: 'none',
     grokBuildSignedIn: false,
-    voice
+    voice,
+    grokCli
   }
 }
 

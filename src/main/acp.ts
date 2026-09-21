@@ -1,9 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'child_process'
-import { existsSync } from 'fs'
-import { homedir } from 'os'
-import { join } from 'path'
 import readline from 'readline'
 import { BROWSER_SESSION_RULE, browserMcpServers } from './browserAgent'
+import { grokBinary } from './grokCli'
 import {
   askPermission,
   cancelAllPermissions,
@@ -175,13 +173,6 @@ function flushInbound(): void {
     flushScheduled = true
     setImmediate(flushInbound)
   }
-}
-
-function grokBinary(): string {
-  const homeBin = join(homedir(), '.grok', 'bin', 'grok')
-  if (process.env.GROK_BIN && existsSync(process.env.GROK_BIN)) return process.env.GROK_BIN
-  if (existsSync(homeBin)) return homeBin
-  return 'grok'
 }
 
 function send(payload: object): void {

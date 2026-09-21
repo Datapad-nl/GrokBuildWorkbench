@@ -163,6 +163,15 @@ export type VoiceModelStatus = {
   totalBytes: number
 }
 
+export type GrokChannel = 'stable' | 'alpha' | 'unknown'
+
+export type GrokCliInfo = {
+  path: string
+  version: string | null
+  channel: GrokChannel
+  models: string[]
+}
+
 export type PublicSettings = {
   hasKey: boolean
   keyPreview: string | null
@@ -170,6 +179,14 @@ export type PublicSettings = {
   keySource: 'grok-build' | 'env' | 'settings' | 'none'
   grokBuildSignedIn: boolean
   voice: VoiceSettings
+  grokCli: GrokCliInfo
+}
+
+export function formatGrokCli(cli: GrokCliInfo): string {
+  if (!cli.version) return 'CLI missing'
+  const version = cli.version.replace(/^v/i, '')
+  if (cli.channel === 'unknown') return `v${version}`
+  return `v${version} ${cli.channel}`
 }
 
 export type UsagePeriodKind = 'weekly' | 'monthly' | 'unknown'

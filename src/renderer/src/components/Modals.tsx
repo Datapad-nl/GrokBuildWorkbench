@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
-import { DEFAULT_VOICE, type UsageSnapshot, type VoiceModelStatus } from '../../../shared/types'
+import {
+  DEFAULT_MODEL,
+  DEFAULT_VOICE,
+  formatGrokCli,
+  type UsageSnapshot,
+  type VoiceModelStatus
+} from '../../../shared/types'
 import { useVoice } from '../voice/VoiceProvider'
 import { listMicInputs, listVoices, primeTtsOutput, speakText, type MicInput } from '../voice/engine'
 import { useWorkspace } from '../workspace'
@@ -249,6 +255,18 @@ function MicPicker({
   )
 }
 
+function modelOptions(ids: string[], current: string): string[] {
+  const seen = new Set<string>()
+  const list: string[] = []
+  for (const id of [...ids, current, DEFAULT_MODEL]) {
+    const value = id.trim()
+    if (!value || seen.has(value)) continue
+    seen.add(value)
+    list.push(value)
+  }
+  return list
+}
+
 function voiceModelHint(voiceModel: VoiceModelStatus): string {
   if (voiceModel.downloading) return `Downloading speech model… ${voiceModel.file ?? ''}`
   if (voiceModel.ready) return 'Local speech model ready'
@@ -349,6 +367,19 @@ export function SettingsModal(): React.JSX.Element | null {
                   ? `Fallback API key (${settings.keySource}): ${settings.keyPreview}`
                   : 'Not signed in. Run grok login in a terminal.'}
             </div>
+            <div
+              data-testid="settings-grok-cli"
+              className="mt-3 rounded-lg border border-line bg-canvas px-3 py-2 text-[12px] text-muted"
+            >
+              <div className="text-[12px] font-medium text-ink">Grok Build CLI</div>
+              <div className="mt-1 text-ink">{formatGrokCli(settings.grokCli)}</div>
+              <div className="mt-0.5 break-all font-mono text-[11px]">{settings.grokCli.path}</div>
+              {settings.grokCli.version ? null : (
+                <p className="mt-1 leading-5">
+                  Install the Grok Build CLI and restart, or set GROK_BIN to the grok binary.
+                </p>
+              )}
+            </div>
             <label className="mt-4 block text-[12px] text-muted">API key</label>
             <input
               type="password"
@@ -361,14 +392,21 @@ export function SettingsModal(): React.JSX.Element | null {
               placeholder="xai-…"
             />
             <label className="mt-4 block text-[12px] text-muted">Model</label>
-            <input
+            <select
+              data-testid="settings-model"
               value={model}
               onChange={(event) => {
                 setModel(event.target.value)
                 setSaved(false)
               }}
               className="mt-1 w-full rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-[13px] outline-none focus:border-accent/60"
-            />
+            >
+              {modelOptions(settings.grokCli.models, model).map((id) => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </select>
             <div className="mt-5 rounded-lg border border-line bg-canvas px-3 py-3">
               <div className="flex items-center justify-between gap-3">
                 <div>

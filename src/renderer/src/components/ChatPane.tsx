@@ -24,7 +24,7 @@ import {
   parseSlashLine,
   type SlashDef
 } from '../../../shared/slash'
-import { nextPermissionMode, normalizePermissionMode } from '../../../shared/types'
+import { formatGrokCli, nextPermissionMode, normalizePermissionMode } from '../../../shared/types'
 import { VoiceBlob } from '../voice/VoiceBlob'
 import { useVoice } from '../voice/VoiceProvider'
 import { useStreams, useWorkspace } from '../workspace'
@@ -277,7 +277,11 @@ export function ChatPane(): React.JSX.Element {
                 projectId: activeChat.projectId,
                 title: activeChat.title,
                 sessionHint: settings
-                  ? `${settings.model} · ${settings.grokBuildSignedIn ? 'Grok Build' : settings.keySource}`
+                  ? [
+                      settings.model,
+                      settings.grokBuildSignedIn ? 'Grok Build' : settings.keySource,
+                      formatGrokCli(settings.grokCli)
+                    ].join(' · ')
                   : null,
                 messages: activeChat.messages,
                 createChat,
