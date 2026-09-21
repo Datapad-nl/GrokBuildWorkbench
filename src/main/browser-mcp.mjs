@@ -2,6 +2,7 @@
 /**
  * Stdio MCP for the Grok Build Workbench BrowserPane.
  * Talks to the loopback HTTP API started by the Workbench main process.
+ * Messages are newline-delimited JSON-RPC (MCP stdio), not LSP Content-Length.
  */
 
 const BASE = process.env.GROKCODE_BROWSER_URL
@@ -106,22 +107,20 @@ async function handleTool(name, args) {
   throw new Error(`Unknown tool: ${name}`)
 }
 
+function send(message) {
+  process.stdout.write(`${JSON.stringify(message)}\n`)
+}
+
 function reply(id, result) {
-  const payload = JSON.stringify({ jsonrpc: '2.0', id, result })
-  const buf = Buffer.from(payload, 'utf8')
-  process.stdout.write(`Content-Length: ${buf.length}\r\n\r\n`)
-  process.stdout.write(buf)
+  send({ jsonrpc: '2.0', id, result })
 }
 
 function fail(id, message) {
-  const payload = JSON.stringify({
+  send({
     jsonrpc: '2.0',
     id,
     error: { code: -32000, message }
   })
-  const buf = Buffer.from(payload, 'utf8')
-  process.stdout.write(`Content-Length: ${buf.length}\r\n\r\n`)
-  process.stdout.write(buf)
 }
 
 async function handle(message) {
@@ -161,26 +160,19 @@ async function handle(message) {
   if (id !== undefined) fail(id, `Unknown method: ${method}`)
 }
 
-let buffer = Buffer.alloc(0)
+let buffer = ''
 
+process.stdin.setEncoding('utf8')
 process.stdin.on('data', (chunk) => {
-  buffer = Buffer.concat([buffer, chunk])
+  buffer += chunk
   while (true) {
-    const headerEnd = buffer.indexOf('\r\n\r\n')
-    if (headerEnd === -1) return
-    const header = buffer.subarray(0, headerEnd).toString('utf8')
-    const match = header.match(/Content-Length:\s*(\d+)/i)
-    if (!match) {
-      buffer = buffer.subarray(headerEnd + 4)
-      continue
-    }
-    const length = Number(match[1])
-    const start = headerEnd + 4
-    if (buffer.length < start + length) return
-    const body = buffer.subarray(start, start + length).toString('utf8')
-    buffer = buffer.subarray(start + length)
+    const nl = buffer.indexOf('\n')
+    if (nl === -1) return
+    const line = buffer.slice(0, nl).trim()
+    buffer = buffer.slice(nl + 1)
+    if (!line) continue
     try {
-      void handle(JSON.parse(body))
+      void handle(JSON.parse(line))
     } catch (error) {
       console.error(error)
     }

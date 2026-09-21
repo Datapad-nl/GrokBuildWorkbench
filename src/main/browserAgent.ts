@@ -26,6 +26,7 @@ export const BROWSER_SESSION_RULE = [
 ].join(' ')
 
 export type AcpMcpServer = {
+  type: 'stdio'
   name: string
   command: string
   args: string[]
@@ -165,6 +166,7 @@ export async function browserMcpServers(): Promise<AcpMcpServer[]> {
   const { url, token } = await startBrowserAgentServer()
   return [
     {
+      type: 'stdio',
       name: 'browser',
       command: process.execPath,
       args: [mcpScriptPath()],
