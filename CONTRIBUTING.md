@@ -4,12 +4,7 @@ Unofficial desktop for Grok Build. Not affiliated with SpaceXAI / xAI.
 
 ## Setup
 
-1. Install [Node.js 22](https://nodejs.org/)
-2. Install the [Grok Build CLI](https://x.ai/news/grok-build-cli) and run `grok login`
-3. `npm install`
-4. `npm run dev`
-
-Optional: copy `.env.example` to `.env` if you want an `XAI_API_KEY` instead of `grok login`.
+Follow [Run](README.md#run) in the README.
 
 ## Before a PR
 

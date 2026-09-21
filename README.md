@@ -9,13 +9,21 @@ Not affiliated with, endorsed by, or sponsored by SpaceXAI / xAI. “Grok” and
 
 ## Run
 
-1. Install the [Grok Build CLI](https://x.ai/news/grok-build-cli) and sign in: `grok login` (SuperGrok).
-2. `npm install`
-3. `npm run dev`
+This repository is the source for a desktop Electron app. There is no packaged Mac `.dmg` or standalone `.app` to download. `npm run dev` opens a development window.
+
+1. Clone this repository.
+2. Install [Node.js 22](https://nodejs.org/).
+3. Install the [Grok Build CLI](https://x.ai/news/grok-build-cli) and sign in: `grok login` (SuperGrok).
+4. `npm install`
+5. `npm run dev`
+
+Optional: copy `.env.example` to `.env` and set `XAI_API_KEY` if you want an API key instead of `grok login`.
+
+On macOS, `npm install` and `npm run dev` register a signed Electron shell at `~/Applications/Grok Build Workbench.app` (and try `/Applications`) so the microphone permission prompt uses this app’s name. That is not a standalone Workbench build — start the app with `npm run dev`. On Windows and Linux the register script exits without doing anything.
 
 Chats are real Grok Build sessions. Sessions already on disk for a folder show up in that project.
 
-`npm run typecheck` is the compile gate. `npm run build` emits the Electron bundle to `out/`.
+`npm run typecheck` is the compile gate. `npm run build` emits the Electron bundle to `out/`. It does not produce a distributable Mac app.
 
 ## What works now
 
