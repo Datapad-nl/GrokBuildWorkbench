@@ -197,6 +197,8 @@ const api = {
     }
   },
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url) as Promise<boolean>,
+  openMedia: (chatId: string, src: string) =>
+    ipcRenderer.invoke('media:open', { chatId, src }) as Promise<boolean>,
   getUsage: () => ipcRenderer.invoke('usage:get') as Promise<UsageSnapshot>,
   quitApp: () => ipcRenderer.invoke('app:quit') as Promise<boolean>
 }

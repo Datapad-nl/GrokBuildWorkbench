@@ -17,6 +17,7 @@ import {
 import { registerIpc } from './ipc'
 import { ensureStore, purgeUnsafeProjects, syncGrokSessions } from './store'
 import { applyWindowChrome, getThemeState } from './themes'
+import { attachMediaProtocol } from './media'
 import { attachVoiceProtocol, ensureMicAccess, getMicAccess, registerVoiceScheme } from './voice'
 import { loadWindowState, trackWindowState } from './windowState'
 
@@ -125,6 +126,7 @@ app.whenReady().then(async () => {
   await purgeUnsafeProjects()
   await syncGrokSessions()
   attachVoiceProtocol()
+  attachMediaProtocol()
   void ensureMicAccess()
   await prepareBrowser()
   await startBrowserAgentServer()

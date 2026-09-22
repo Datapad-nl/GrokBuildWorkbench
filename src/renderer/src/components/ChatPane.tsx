@@ -239,6 +239,7 @@ export function ChatPane(): React.JSX.Element {
         <>
           <MessageList
             chat={activeChat}
+            chatId={activeChat.id}
             projectId={activeChat.projectId}
             index={indexes[activeChat.projectId]}
             draft={stream?.status === 'streaming' ? stream.draft : ''}
@@ -463,6 +464,7 @@ function EmptyState({
 
 function MessageList({
   chat,
+  chatId,
   projectId,
   index,
   draft,
@@ -474,6 +476,7 @@ function MessageList({
   onRewind
 }: {
   chat: { messages: Message[] }
+  chatId: string
   projectId: string
   index: ProjectIndex | undefined
   draft: string
@@ -541,7 +544,7 @@ function MessageList({
                 </div>
               ) : (
                 <>
-                  {message.content ? <Markdown text={message.content} /> : null}
+                  {message.content ? <Markdown text={message.content} chatId={chatId} /> : null}
                   {message.kind === 'btw' && !message.content ? <span className="cursor" /> : null}
                 </>
               )}
@@ -572,13 +575,13 @@ function MessageList({
               <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.14em] text-accent">
                 Grok
               </div>
-              <Markdown text={draft} />
+              <Markdown text={draft} chatId={chatId} />
               <span className="cursor" />
             </article>
           )}
           {error && <div className="text-[13px] text-danger">{error}</div>}
           {plan && (plan.entries.length > 0 || plan.awaitingApproval || plan.markdown?.trim()) && (
-            <PlanCard plan={plan} canApprove={canApprove} onApprove={onApprove} />
+            <PlanCard plan={plan} chatId={chatId} canApprove={canApprove} onApprove={onApprove} />
           )}
         </div>
       )}
@@ -641,10 +644,12 @@ function PlanMark({ status }: { status: PlanEntry['status'] }): React.JSX.Elemen
 
 function PlanCard({
   plan,
+  chatId,
   canApprove,
   onApprove
 }: {
   plan: ChatPlan
+  chatId: string
   canApprove: boolean
   onApprove: (verdict: PlanVerdict) => void
 }): React.JSX.Element {
@@ -661,7 +666,7 @@ function PlanCard({
       </div>
       {markdown ? (
         <div className="mt-3 max-h-[min(50vh,420px)] overflow-y-auto rounded-lg border border-line bg-canvas px-3 py-2">
-          <Markdown text={markdown} />
+          <Markdown text={markdown} chatId={chatId} />
         </div>
       ) : plan.entries.length > 0 ? (
         <ol className="mt-3 flex flex-col gap-1.5">

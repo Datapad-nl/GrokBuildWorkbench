@@ -13,8 +13,8 @@ workbench_generated: true
 Electron + Vite + React desktop app. Unofficial desktop for Grok Build. Projects in the sidebar, concurrent chats.
 Stack: Electron + React + Vite + Tailwind.
 Languages: javascript, tsx, typescript.
-60 indexed files.
-1423 symbols.
+64 indexed files.
+1487 symbols.
 
 ## Map
 

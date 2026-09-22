@@ -17,7 +17,13 @@ import {
 import { isUnsafeProjectPath, queueIndex } from './codegraph'
 import { id, now } from './ids'
 import { getGrokCliInfo } from './grokCli'
-import { grokBuildSignedIn, listGrokSessions, readGrokHistory, readGrokPlan } from './sessions'
+import {
+  findGrokSessionDir,
+  grokBuildSignedIn,
+  listGrokSessions,
+  readGrokHistory,
+  readGrokPlan
+} from './sessions'
 
 type SettingsFile = {
   apiKey: string
@@ -351,6 +357,20 @@ export async function deleteProject(projectId: string): Promise<void> {
 
 async function readChat(chatId: string): Promise<Chat | null> {
   return readJson<Chat | null>(chatPath(chatId), null)
+}
+
+export async function chatMediaRoots(chatId: string): Promise<string[]> {
+  const chat = await readChat(chatId)
+  if (!chat) return []
+  const roots: string[] = []
+  if (chat.worktreePath) roots.push(chat.worktreePath)
+  const project = (await loadProjects()).find((item) => item.id === chat.projectId)
+  if (project?.path) roots.push(project.path)
+  if (chat.grokSessionId) {
+    const dir = findGrokSessionDir(chat.grokSessionId)
+    if (dir) roots.push(dir)
+  }
+  return roots
 }
 
 export async function getChat(chatId: string): Promise<Chat> {

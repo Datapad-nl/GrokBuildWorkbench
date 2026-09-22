@@ -6,6 +6,7 @@ import { pathToFileURL } from 'url'
 import { finished } from 'stream/promises'
 import { Readable } from 'stream'
 import type { VoiceModelStatus } from '../shared/types'
+import { mediaSchemePrivilege } from './media'
 
 const SCHEME = 'grokcode-model'
 
@@ -102,7 +103,8 @@ export function registerVoiceScheme(): void {
         stream: true,
         bypassCSP: true
       }
-    }
+    },
+    mediaSchemePrivilege()
   ])
 }
 

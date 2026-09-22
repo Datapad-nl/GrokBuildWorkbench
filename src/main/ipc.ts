@@ -33,6 +33,7 @@ import {
   startBrowserAnnotate,
   stopBrowser
 } from './browser'
+import { openChatMedia } from './media'
 import { transcribeYoutube } from './youtube'
 import { buildOrientation, collectIndexes, onIndexChange, queueIndex } from './codegraph'
 import {
@@ -582,5 +583,9 @@ export function registerIpc(): void {
     if (!clean) return false
     await shell.openExternal(clean)
     return true
+  })
+
+  ipcMain.handle('media:open', async (_event, input: { chatId?: string; src?: string }) => {
+    return openChatMedia(String(input?.chatId ?? ''), String(input?.src ?? ''))
   })
 }
