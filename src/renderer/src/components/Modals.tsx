@@ -305,11 +305,19 @@ export function SettingsModal(): React.JSX.Element | null {
   const { model: voiceModel } = useVoice()
   const [tab, setTab] = useState<'general' | 'appearance'>('general')
   const [apiKey, setApiKey] = useState('')
-  const [model, setModel] = useState(settings?.model ?? 'grok-4.6')
+  const [model, setModel] = useState(settings?.model || DEFAULT_MODEL)
   const [saved, setSaved] = useState(false)
   const [testError, setTestError] = useState<string | null>(null)
   const voices = listVoices()
   const voice = settings?.voice ?? DEFAULT_VOICE
+
+  // This dialog stays mounted from the first frame, while settings are still
+  // null. Seed the select from the saved model each time it opens, otherwise
+  // a restart shows the grok-4.6 fallback even after Save wrote grok-4.7.
+  useEffect(() => {
+    if (!showSettings) return
+    setModel(settings?.model || DEFAULT_MODEL)
+  }, [showSettings, settings?.model])
 
   if (!showSettings || !settings) return null
 
