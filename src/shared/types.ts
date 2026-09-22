@@ -172,10 +172,28 @@ export type GrokCliInfo = {
   models: string[]
 }
 
+export const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh'] as const
+
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number]
+
+export function normalizeReasoningEffort(value: unknown): ReasoningEffort | null {
+  if (typeof value !== 'string') return null
+  const id = value.trim().toLowerCase().replace(/[\s_-]+/g, '')
+  if (id === 'low' || id === 'medium' || id === 'high' || id === 'xhigh') return id
+  if (id === 'extrahigh') return 'xhigh'
+  return null
+}
+
+export function reasoningEffortLabel(effort: ReasoningEffort): string {
+  if (effort === 'xhigh') return 'Extra high'
+  return effort.slice(0, 1).toUpperCase() + effort.slice(1)
+}
+
 export type PublicSettings = {
   hasKey: boolean
   keyPreview: string | null
   model: string
+  effort: ReasoningEffort | null
   keySource: 'grok-build' | 'env' | 'settings' | 'none'
   grokBuildSignedIn: boolean
   voice: VoiceSettings

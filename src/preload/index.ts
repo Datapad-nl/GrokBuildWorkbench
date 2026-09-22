@@ -62,7 +62,12 @@ const api = {
   rewindChat: (chatId: string, checkpointId: string) =>
     ipcRenderer.invoke('chat:rewind', { chatId, checkpointId }),
   getSettings: () => ipcRenderer.invoke('settings:get'),
-  setSettings: (input: { apiKey?: string; model?: string; voice?: Partial<VoiceSettings> }) =>
+  setSettings: (input: {
+    apiKey?: string
+    model?: string
+    effort?: string | null
+    voice?: Partial<VoiceSettings>
+  }) =>
     ipcRenderer.invoke('settings:set', input),
   getVoiceModelStatus: () => ipcRenderer.invoke('voice:modelStatus') as Promise<VoiceModelStatus>,
   ensureVoiceModel: () => ipcRenderer.invoke('voice:ensureModel') as Promise<VoiceModelStatus>,

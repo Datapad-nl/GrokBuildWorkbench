@@ -92,7 +92,12 @@ type WorkspaceContextValue = {
   rewindChat: (chatId: string, checkpointId: string) => Promise<void>
   permissions: Record<string, PermissionRequest>
   questions: Record<string, UserQuestionRequest>
-  saveSettings: (input: { apiKey?: string; model?: string; voice?: Partial<VoiceSettings> }) => Promise<void>
+  saveSettings: (input: {
+    apiKey?: string
+    model?: string
+    effort?: string | null
+    voice?: Partial<VoiceSettings>
+  }) => Promise<void>
   refresh: () => Promise<WorkspaceSnapshot>
 }
 
@@ -686,7 +691,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }): React.
   }, [refresh])
 
   const saveSettings = useCallback(
-    async (input: { apiKey?: string; model?: string; voice?: Partial<VoiceSettings> }) => {
+    async (input: {
+      apiKey?: string
+      model?: string
+      effort?: string | null
+      voice?: Partial<VoiceSettings>
+    }) => {
       const next = await window.grokcode.setSettings(input)
       setSettings(
         input.voice

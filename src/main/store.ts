@@ -6,11 +6,13 @@ import { DEFAULT_THEME_ID } from '../shared/theme'
 import {
   DEFAULT_MODEL,
   DEFAULT_VOICE,
+  normalizeReasoningEffort,
   normalizeVoiceSettings,
   type Chat,
   type ChatSummary,
   type Project,
   type PublicSettings,
+  type ReasoningEffort,
   type UpdateProjectInput,
   type VoiceSettings
 } from '../shared/types'
@@ -22,6 +24,7 @@ import { grokBuildSignedIn, listGrokSessions, readGrokHistory, readGrokPlan } fr
 type SettingsFile = {
   apiKey: string
   model: string
+  effort: ReasoningEffort | ''
   themeId: string
   voice: VoiceSettings
 }
@@ -103,6 +106,7 @@ export async function ensureStore(): Promise<void> {
     await writeJson(settingsPath(), {
       apiKey: '',
       model: DEFAULT_MODEL,
+      effort: '',
       themeId: DEFAULT_THEME_ID,
       voice: DEFAULT_VOICE
     } satisfies SettingsFile)
@@ -168,6 +172,7 @@ async function loadSettingsFile(): Promise<SettingsFile> {
   return {
     apiKey: file.apiKey ?? '',
     model: file.model || DEFAULT_MODEL,
+    effort: normalizeReasoningEffort(file.effort) ?? '',
     themeId: file.themeId || DEFAULT_THEME_ID,
     voice: normalizeVoiceSettings(file.voice)
   }
@@ -198,6 +203,7 @@ export async function getPublicSettings(): Promise<PublicSettings> {
   const stored = file.apiKey.trim()
   const signedIn = grokBuildSignedIn()
   const model = file.model || DEFAULT_MODEL
+  const effort = file.effort || null
   const voice = file.voice
   const grokCli = await getGrokCliInfo()
   if (signedIn) {
@@ -205,6 +211,7 @@ export async function getPublicSettings(): Promise<PublicSettings> {
       hasKey: true,
       keyPreview: 'Grok Build',
       model,
+      effort,
       keySource: 'grok-build',
       grokBuildSignedIn: true,
       voice,
@@ -216,6 +223,7 @@ export async function getPublicSettings(): Promise<PublicSettings> {
       hasKey: true,
       keyPreview: maskKey(envKey),
       model,
+      effort,
       keySource: 'env',
       grokBuildSignedIn: false,
       voice,
@@ -227,6 +235,7 @@ export async function getPublicSettings(): Promise<PublicSettings> {
       hasKey: true,
       keyPreview: maskKey(stored),
       model,
+      effort,
       keySource: 'settings',
       grokBuildSignedIn: false,
       voice,
@@ -237,6 +246,7 @@ export async function getPublicSettings(): Promise<PublicSettings> {
     hasKey: false,
     keyPreview: null,
     model,
+    effort,
     keySource: 'none',
     grokBuildSignedIn: false,
     voice,
@@ -256,15 +266,23 @@ export async function getModel(): Promise<string> {
   return file.model || DEFAULT_MODEL
 }
 
+export async function getEffort(): Promise<ReasoningEffort | null> {
+  const file = await loadSettingsFile()
+  return file.effort || null
+}
+
 export async function updateSettings(input: {
   apiKey?: string
   model?: string
+  effort?: string | null
   voice?: Partial<VoiceSettings>
 }): Promise<PublicSettings> {
   const current = await loadSettingsFile()
   await writeJson(settingsPath(), {
     apiKey: input.apiKey !== undefined ? input.apiKey.trim() : current.apiKey,
     model: input.model?.trim() || current.model || DEFAULT_MODEL,
+    effort:
+      input.effort !== undefined ? (normalizeReasoningEffort(input.effort) ?? '') : current.effort,
     themeId: current.themeId || DEFAULT_THEME_ID,
     voice: normalizeVoiceSettings({ ...current.voice, ...input.voice })
   } satisfies SettingsFile)

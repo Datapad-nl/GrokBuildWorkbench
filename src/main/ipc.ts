@@ -61,7 +61,7 @@ import {
   streamAssistant,
   stopStream
 } from './grok'
-import { fetchUsage } from './acp'
+import { applyEffortToLiveSessions, fetchUsage } from './acp'
 import {
   onPermissionDenied,
   onPermissionPrompt,
@@ -421,8 +421,13 @@ export function registerIpc(): void {
 
   ipcMain.handle(
     'settings:set',
-    async (_event, input: { apiKey?: string; model?: string; voice?: Partial<VoiceSettings> }) => {
-      return updateSettings(input)
+    async (
+      _event,
+      input: { apiKey?: string; model?: string; effort?: string | null; voice?: Partial<VoiceSettings> }
+    ) => {
+      const settings = await updateSettings(input)
+      if (input.effort !== undefined) await applyEffortToLiveSessions(settings.effort)
+      return settings
     }
   )
 
