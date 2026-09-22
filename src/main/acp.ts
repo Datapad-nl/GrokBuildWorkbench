@@ -25,8 +25,8 @@ import {
   parseQuestions,
   skipOutcome
 } from './questions'
-import type { UsagePeriodKind, UsageSnapshot } from '../shared/types'
-import { getApiKey } from './store'
+import type { ReasoningEffort, UsagePeriodKind, UsageSnapshot } from '../shared/types'
+import { getApiKey, getEffort } from './store'
 import { readGrokPlan } from './sessions'
 
 type JsonRpc = {
@@ -596,6 +596,28 @@ async function sessionConfig(
   }
 }
 
+async function applySessionEffort(sessionId: string, effort: ReasoningEffort | null): Promise<void> {
+  if (!effort || !proc || !liveSessions.has(sessionId)) return
+  try {
+    await request(
+      'session/set_config_option',
+      {
+        sessionId,
+        configId: 'reasoning_effort',
+        value: { value: effort }
+      },
+      8_000
+    )
+  } catch {
+    // The active model may not advertise reasoning effort. The session still runs.
+  }
+}
+
+export async function applyEffortToLiveSessions(effort: ReasoningEffort | null): Promise<void> {
+  if (!effort || !proc) return
+  await Promise.all([...liveSessions].map((sessionId) => applySessionEffort(sessionId, effort)))
+}
+
 export async function newSession(cwd: string, extraRules?: string | null): Promise<string> {
   await ensureAgent()
   const result = await request<{
@@ -604,6 +626,7 @@ export async function newSession(cwd: string, extraRules?: string | null): Promi
   }>('session/new', await sessionConfig(cwd, extraRules), 30_000)
   rememberModes(result.sessionId, result)
   liveSessions.add(result.sessionId)
+  await applySessionEffort(result.sessionId, await getEffort())
   return result.sessionId
 }
 
@@ -620,6 +643,7 @@ export async function loadSession(
   )
   rememberModes(sessionId, result)
   liveSessions.add(sessionId)
+  await applySessionEffort(sessionId, await getEffort())
 }
 
 export function hasLiveSession(sessionId: string): boolean {

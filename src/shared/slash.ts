@@ -84,7 +84,7 @@ export const SLASH_COMMANDS: SlashDef[] = [
   { id: 'fork', hint: 'Branch this session', kind: 'unavailable' },
   { id: 'edit-prompt', hint: 'Edit the draft in $EDITOR', kind: 'unavailable' },
   { id: 'home', aliases: ['welcome'], hint: 'Return to the welcome screen', kind: 'unavailable' },
-  { id: 'effort', hint: 'Set reasoning effort', kind: 'unavailable' },
+  { id: 'effort', hint: 'Set reasoning effort', kind: 'local', needsArgs: true },
   { id: 'multiline', aliases: ['ml'], hint: 'Toggle multiline Enter', kind: 'unavailable' },
   { id: 'history', hint: 'Search prompt history', kind: 'unavailable' },
   { id: 'compact-mode', hint: 'Toggle compact display', kind: 'unavailable' },

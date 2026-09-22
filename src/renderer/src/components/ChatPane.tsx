@@ -24,7 +24,13 @@ import {
   parseSlashLine,
   type SlashDef
 } from '../../../shared/slash'
-import { formatGrokCli, nextPermissionMode, normalizePermissionMode } from '../../../shared/types'
+import {
+  formatGrokCli,
+  nextPermissionMode,
+  normalizePermissionMode,
+  normalizeReasoningEffort,
+  reasoningEffortLabel
+} from '../../../shared/types'
 import { VoiceBlob } from '../voice/VoiceBlob'
 import { useVoice } from '../voice/VoiceProvider'
 import { useStreams, useWorkspace } from '../workspace'
@@ -60,7 +66,7 @@ type SlashRun = {
     mentions?: FileMention[]
   ) => Promise<void>
   setChatMode: (chatId: string, mode: PermissionMode) => Promise<void>
-  saveSettings: (input: { model?: string }) => Promise<void>
+  saveSettings: (input: { model?: string; effort?: string | null }) => Promise<void>
   setShowSettings: (open: boolean) => void
   setShowUsage: (open: boolean) => void
   openRewind: () => void
@@ -142,6 +148,16 @@ async function runSlash(input: SlashRun): Promise<string | null> {
       }
       await input.saveSettings({ model: args })
       return `Model set to ${args}`
+    case 'effort': {
+      if (!args) {
+        input.setShowSettings(true)
+        return 'Opened settings — set effort next to the model, or /effort low|medium|high|xhigh'
+      }
+      const effort = normalizeReasoningEffort(args)
+      if (!effort) return 'Usage: /effort low | medium | high | xhigh'
+      await input.saveSettings({ effort })
+      return `Effort set to ${reasoningEffortLabel(effort)}`
+    }
     case 'settings':
     case 'theme':
       input.setShowSettings(true)
@@ -280,9 +296,12 @@ export function ChatPane(): React.JSX.Element {
                 sessionHint: settings
                   ? [
                       settings.model,
+                      settings.effort ? reasoningEffortLabel(settings.effort) : null,
                       settings.grokBuildSignedIn ? 'Grok Build' : settings.keySource,
                       formatGrokCli(settings.grokCli)
-                    ].join(' · ')
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')
                   : null,
                 messages: activeChat.messages,
                 createChat,

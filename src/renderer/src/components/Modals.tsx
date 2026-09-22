@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
   DEFAULT_MODEL,
+  REASONING_EFFORTS,
+  reasoningEffortLabel,
+  type ReasoningEffort,
   DEFAULT_VOICE,
   formatGrokCli,
   type UsageSnapshot,
@@ -306,6 +309,7 @@ export function SettingsModal(): React.JSX.Element | null {
   const [tab, setTab] = useState<'general' | 'appearance'>('general')
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState(settings?.model || DEFAULT_MODEL)
+  const [effort, setEffort] = useState<ReasoningEffort | ''>(settings?.effort ?? '')
   const [saved, setSaved] = useState(false)
   const [testError, setTestError] = useState<string | null>(null)
   const voices = listVoices()
@@ -317,14 +321,16 @@ export function SettingsModal(): React.JSX.Element | null {
   useEffect(() => {
     if (!showSettings) return
     setModel(settings?.model || DEFAULT_MODEL)
-  }, [showSettings, settings?.model])
+    setEffort(settings?.effort ?? '')
+  }, [showSettings, settings?.model, settings?.effort])
 
   if (!showSettings || !settings) return null
 
   async function submit(): Promise<void> {
     await saveSettings({
       apiKey: apiKey.trim() ? apiKey.trim() : undefined,
-      model
+      model,
+      effort: effort || null
     })
     setApiKey('')
     setSaved(true)
@@ -399,22 +405,45 @@ export function SettingsModal(): React.JSX.Element | null {
               className="mt-1 w-full rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-[13px] outline-none focus:border-accent/60"
               placeholder="xai-…"
             />
-            <label className="mt-4 block text-[12px] text-muted">Model</label>
-            <select
-              data-testid="settings-model"
-              value={model}
-              onChange={(event) => {
-                setModel(event.target.value)
-                setSaved(false)
-              }}
-              className="mt-1 w-full rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-[13px] outline-none focus:border-accent/60"
-            >
-              {modelOptions(settings.grokCli.models, model).map((id) => (
-                <option key={id} value={id}>
-                  {id}
-                </option>
-              ))}
-            </select>
+            <div className="mt-4 grid grid-cols-[minmax(0,1.4fr)_minmax(0,0.9fr)] gap-3">
+              <div className="min-w-0">
+                <label className="block text-[12px] text-muted">Model</label>
+                <select
+                  data-testid="settings-model"
+                  value={model}
+                  onChange={(event) => {
+                    setModel(event.target.value)
+                    setSaved(false)
+                  }}
+                  className="mt-1 w-full rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-[13px] outline-none focus:border-accent/60"
+                >
+                  {modelOptions(settings.grokCli.models, model).map((id) => (
+                    <option key={id} value={id}>
+                      {id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="min-w-0">
+                <label className="block text-[12px] text-muted">Effort</label>
+                <select
+                  data-testid="settings-effort"
+                  value={effort}
+                  onChange={(event) => {
+                    setEffort(event.target.value as ReasoningEffort | '')
+                    setSaved(false)
+                  }}
+                  className="mt-1 w-full rounded-lg border border-line bg-canvas px-3 py-2 text-[13px] outline-none focus:border-accent/60"
+                >
+                  <option value="">Default</option>
+                  {REASONING_EFFORTS.map((id) => (
+                    <option key={id} value={id}>
+                      {reasoningEffortLabel(id)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
             <div className="mt-5 rounded-lg border border-line bg-canvas px-3 py-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
