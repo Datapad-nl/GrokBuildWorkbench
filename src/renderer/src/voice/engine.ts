@@ -164,6 +164,91 @@ export function speakableText(markdown: string): string {
   return text
 }
 
+const EN_WORDS = new Set(
+  `the and to of that you with this for are have not but they from your can will what when how about there would could should just here also because which their been were into than then them our don't it's i'm you're that's isn't doesn't didn't i've we've can't won't please thanks thank`.split(
+    /\s+/
+  )
+)
+
+const OTHER_WORDS = new Set(
+  `het een van niet zijn voor met ook maar naar wordt deze geen nog wel omdat door bij als wat dit dat uit over hebben heeft werd worden ik je jij wij zij hun onze jouw mijn moet graag alstublieft bedankt hoe waar waarom wanneer wie welk welke natuurlijk de en
+le la les une un que pour dans pas des avec vous nous cette sont qui sur par elle aux du au cela aussi mais donc très être avoir pourquoi quand parce quelle quel bonjour merci est
+und nicht ich sie den von auf für dem sich auch nach wie aber eine ist der die das ein im zu zum zur mit dass schon wenn oder wir ihr uns euch mein keine muss haben hat wird werden wurde über weil bitte danke gerne
+el los las del una para por con como esta esto pero más muy porque cuando también está son hay sus ese esa eso nos les ya sí gracias hola dónde cómo tiene puedes puede hacer sobre entre desde hasta todos todas este estos
+che per sono come questa questo anche della degli delle nel nella gli lei noi voi loro perché quando dove cosa tutto tutti molto bene grazie ciao
+não com mais você isso pelo pela dos das num numa ele ela nós vocês muito obrigado obrigada`.split(
+    /\s+/
+  )
+)
+
+const OTHER_GREETINGS = new Set(
+  'bonjour merci gracias hola ciao obrigado obrigada danke bitte hallo hoi doei goedemorgen alstublieft dankjewel bedankt'.split(
+    /\s+/
+  )
+)
+
+function speechWords(text: string): string[] {
+  return text.toLowerCase().match(/\p{L}+(?:['’]\p{L}+)?/gu) ?? []
+}
+
+function countWords(words: string[], dict: Set<string>): number {
+  let n = 0
+  for (const word of words) if (dict.has(word)) n++
+  return n
+}
+
+/** English TTS only. `unknown` means there is not enough text to decide yet. */
+export function textLanguage(text: string): 'en' | 'other' | 'unknown' {
+  const trimmed = text.trim()
+  if (!trimmed) return 'unknown'
+  const letters = trimmed.match(/\p{L}/gu) ?? []
+  const nonLatin = trimmed.match(/\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Hangul}|\p{Script=Cyrillic}|\p{Script=Arabic}|\p{Script=Hebrew}|\p{Script=Devanagari}|\p{Script=Thai}|\p{Script=Greek}/gu) ?? []
+  if (nonLatin.length >= 4 && nonLatin.length >= letters.length * 0.25) return 'other'
+  const words = speechWords(trimmed)
+  if (words.length === 0) return 'unknown'
+  const en = countWords(words, EN_WORDS)
+  const other = countWords(words, OTHER_WORDS)
+  const greeting = words.some((word) => OTHER_GREETINGS.has(word))
+  if (greeting && en === 0) return 'other'
+  if (words.length === 1 && other === 1 && en === 0) return 'other'
+  if (other >= 2 && other > en) return 'other'
+  const diacritics = trimmed.match(/[àáâäãåæçèéêëìíîïñòóôöõùúûüýÿœ]/gi) ?? []
+  if (diacritics.length >= 3 && en === 0 && words.length >= 3) return 'other'
+  if (en >= 2 && en >= other) return 'en'
+  if (en >= 1 && other === 0 && words.length >= 4) return 'en'
+  if (words.length >= 8 && other === 0) return 'en'
+  if (words.length >= 8 && other > en) return 'other'
+  return 'unknown'
+}
+
+export function shouldMuteReply(userText: string, assistantText: string): boolean {
+  const reply = textLanguage(assistantText)
+  if (reply === 'other') return true
+  if (reply === 'en') return false
+  return textLanguage(userText) === 'other'
+}
+
+function sentenceEnded(part: string): boolean {
+  return /[.!?](?:["')\]]+)?$/.test(part.trim())
+}
+
+/** Drop sentences the English voice cannot say. Incomplete tails stay out until they classify. */
+export function englishSpeechText(text: string, flush: boolean): string {
+  const parts = text.match(/[^.!?]+[.!?]+(?:["')\]]+)?|[^.!?]+$/g)
+  if (!parts) return ''
+  const kept: string[] = []
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    const last = i === parts.length - 1
+    const ended = sentenceEnded(part)
+    const verdict = textLanguage(part)
+    if (verdict === 'other') continue
+    if (!ended && last && !flush && verdict !== 'en') continue
+    kept.push(part)
+  }
+  return kept.join('').replace(/\s+/g, ' ').trim()
+}
+
 function voiceId(settings: VoiceSettings): string {
   return TTS_VOICES.some((item) => item.voiceURI === settings.voiceURI) ? settings.voiceURI : 'M1'
 }
@@ -374,7 +459,7 @@ export async function speakText(
   settings: VoiceSettings,
   opts?: { append?: boolean }
 ): Promise<void> {
-  const spoken = speakableText(text)
+  const spoken = englishSpeechText(speakableText(text), true)
   if (!opts?.append) {
     speakGen += 1
     speakQueue = []

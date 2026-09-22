@@ -11,13 +11,16 @@ import {
 import { DEFAULT_VOICE, type VoiceModelStatus, type VoiceSettings } from '../../../shared/types'
 import { useStreams, useWorkspace } from '../workspace'
 import {
+  englishSpeechText,
   isSpeaking,
   openLiveMicStream,
   primeTtsOutput,
   resetSpokenLog,
   resetVoiceMotion,
+  shouldMuteReply,
   speakableText,
   speakText,
+  textLanguage,
   startNativeSpeech,
   startRecorder,
   stopSpeaking,
@@ -391,12 +394,25 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
         spoken.plain = ''
         spoken.draftLen = 0
         spoken.ids.clear()
+        spoken.muted = false
         resetSpokenLog()
         speakEpoch.current += 1
         stopSpeaking()
       }
       spoken.draftLen = stream.draft.length
-      const full = speakableText(stream.draft)
+      const raw = speakableText(stream.draft)
+      if (!spoken.plain && (spoken.muted || textLanguage(raw) === 'other')) {
+        spoken.muted = true
+        if (isSpeaking()) {
+          speakEpoch.current += 1
+          stopSpeaking()
+          resetSpokenLog()
+        }
+        if (statusRef.current === 'speaking') setStatus('waiting')
+        return
+      }
+      if (!spoken.plain && textLanguage(raw) !== 'en') return
+      const full = englishSpeechText(raw, false)
       const { speak, consumed } = takeSpeakableDelta(full, spoken.plain, false)
       if (!speak) return
       spoken.plain = consumed
@@ -422,7 +438,11 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     if (!last || last.role !== 'assistant') return
     if (spoken.ids.has(last.id)) return
     spoken.ids.add(last.id)
-    const full = speakableText(last.content)
+    const raw = speakableText(last.content)
+    const userText = latestUserText(chat?.messages)
+    const blocked = spoken.muted || (!spoken.plain && shouldMuteReply(userText, raw))
+    spoken.muted = false
+    const full = blocked ? '' : englishSpeechText(raw, true)
     const prior = spoken.plain
     const speak = leftoverSpeak(full, prior)
     spoken.plain = full.replace(/\s+/g, ' ').trim()
@@ -521,17 +541,25 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>
 }
 
-type ChatSpeech = { plain: string; ids: Set<string>; draftLen: number }
+type ChatSpeech = { plain: string; ids: Set<string>; draftLen: number; muted: boolean }
 
 const speechByChat = new Map<string, ChatSpeech>()
 
 function speechState(chatId: string): ChatSpeech {
   let state = speechByChat.get(chatId)
   if (!state) {
-    state = { plain: '', ids: new Set(), draftLen: 0 }
+    state = { plain: '', ids: new Set(), draftLen: 0, muted: false }
     speechByChat.set(chatId, state)
   }
   return state
+}
+
+function latestUserText(messages: { role: string; content: string }[] | undefined): string {
+  if (!messages) return ''
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') return speakableText(messages[i].content)
+  }
+  return ''
 }
 
 function leftoverSpeak(full: string, consumed: string): string {
