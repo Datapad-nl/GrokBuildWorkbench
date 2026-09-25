@@ -31,7 +31,7 @@ import {
   setAcpSessionMode,
   type SessionUpdate
 } from './acp'
-import { emitNotice, finishTurn, startTurn } from './activity'
+import { emitGoal, emitNotice, finishTurn, startTurn } from './activity'
 import { finishCheckpoint, snapshotTouched, startCheckpoint, rewindTo } from './checkpoints'
 import { id, now, titleFromPrompt } from './ids'
 import {
@@ -323,6 +323,23 @@ function promptForMode(mode: PermissionMode, text: string): string {
   return `${PLAN_MODE_INSTRUCTION}\n\n${text}`
 }
 
+const LONG_TASK_RE =
+  /\b(implement|fix|add|create|write|edit|refactor|rename|delete|remove|migrate|update the|patch|wire|replace|extract|introduce|scaffold|build out|change the|extend|rerun|re-run|sweep|investigate|compare|measure|analyze|analyse|backtest|debug)\b/i
+
+/** Long work goes through Grok's /goal loop so it keeps running and reports milestones. */
+export function shouldStartGoal(mode: PermissionMode, text: string): boolean {
+  if (mode !== 'accept') return false
+  const trimmed = text.trim()
+  if (!trimmed || trimmed.startsWith('/')) return false
+  if (LONG_TASK_RE.test(trimmed)) return true
+  return trimmed.length >= 280
+}
+
+function goalObjective(text: string): string {
+  const line = text.trim().split('\n').find((item) => item.trim())?.trim() ?? 'this task'
+  return line.length > 140 ? `${line.slice(0, 139).trim()}…` : line
+}
+
 export async function rewindChat(chatId: string, checkpointId: string, cwd: string | null): Promise<Chat> {
   if (isStreaming(chatId)) stopStream(chatId)
   const chat = await rewindTo(chatId, checkpointId, cwd)
@@ -576,12 +593,22 @@ export async function streamAssistant(
   try {
     const mode = normalizePermissionMode(resolved.chat.mode)
     await applyAcpMode(resolved.sessionId, mode)
+    const userText = followText || lastUser!.content
+    const mentioned = followText ? followText : promptForMentions(lastUser!.content, lastUser!.mentions)
+    const cued = promptForMode(mode, mentioned)
+    const asGoal = !followText && shouldStartGoal(mode, userText)
+    if (asGoal) {
+      emitGoal({
+        chatId: resolved.chat.id,
+        chatTitle: resolved.chat.title,
+        sessionId: resolved.sessionId,
+        title: goalObjective(userText),
+        detail: 'Running as a goal until this is done.'
+      })
+    }
     await promptSession(
       resolved.sessionId,
-      promptForMode(
-        mode,
-        followText || promptForMentions(lastUser!.content, lastUser!.mentions)
-      ),
+      asGoal ? `/goal ${cued}` : cued,
       followUp ? (followUp.attachments ?? []) : (lastUser!.attachments ?? [])
     )
     if (!isCurrentTurn(chat.id, gen)) return null

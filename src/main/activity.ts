@@ -126,6 +126,25 @@ function boundFields(sessionId: string | null): Pick<ActivityEvent, 'chatId' | '
   return { chatId: bound?.id ?? null, chatTitle: bound?.title ?? null }
 }
 
+export function emitGoal(input: {
+  chatId: string
+  chatTitle: string
+  sessionId: string | null
+  title: string
+  detail?: string | null
+}): void {
+  emitActivity({
+    kind: 'goal',
+    chatId: input.chatId,
+    chatTitle: input.chatTitle,
+    sessionId: input.sessionId,
+    title: input.title,
+    detail: input.detail ?? null,
+    status: 'running',
+    coalesceKey: `goal:${input.chatId}`
+  })
+}
+
 export function emitNotice(input: {
   chatId: string
   chatTitle: string
@@ -430,6 +449,37 @@ function extractDiffs(update: SessionUpdate['update']): ActivityDiff[] {
   return diffs
 }
 
+function goalToolMessage(update: SessionUpdate['update']): string | null {
+  const name = `${update.name ?? ''} ${update.title ?? ''} ${update.kind ?? ''}`.toLowerCase()
+  if (!name.includes('update_goal')) return null
+  const record = asRecord(update.rawInput)
+  if (!record) return null
+  return firstString(record, ['message', 'text', 'blocked_reason', 'blockedReason'])
+}
+
+function countField(update: SessionUpdate['update']): string | null {
+  const done = update.completed_deliverables ?? update.completedDeliverables
+  const total = update.total_deliverables ?? update.totalDeliverables
+  if (typeof done !== 'number' || typeof total !== 'number' || total <= 0) return null
+  return `${done}/${total}`
+}
+
+function goalUpdateTitle(update: SessionUpdate['update']): string {
+  const step =
+    update.current_deliverable_title?.trim() ||
+    update.currentDeliverableTitle?.trim() ||
+    update.message?.trim() ||
+    update.objective?.trim() ||
+    'Goal'
+  const count = countField(update)
+  return count ? `${count} · ${step}` : step
+}
+
+function goalUpdateDetail(update: SessionUpdate['update']): string | null {
+  const parts = [update.objective?.trim(), update.message?.trim()].filter((part): part is string => Boolean(part))
+  return parts.length > 0 ? parts.join('\n') : null
+}
+
 function summarizeTool(update: SessionUpdate['update']): {
   title: string
   detail: string | null
@@ -439,6 +489,10 @@ function summarizeTool(update: SessionUpdate['update']): {
   const toolKind = update.kind?.trim() || null
   const diffs = extractDiffs(update)
   const paths = (update.locations ?? []).map((location) => location.path).filter((path): path is string => Boolean(path))
+  const goalMessage = goalToolMessage(update)
+  if (goalMessage) {
+    return { title: clip(goalMessage, 160), detail: goalMessage, toolKind: 'update_goal', diffs }
+  }
   const input = diffs.length > 0 ? null : summarizeBlob(update.rawInput, INPUT_KEYS)
   const output =
     diffs.length > 0 ? null : (toolContentText(update.content) ?? summarizeBlob(update.rawOutput, OUTPUT_KEYS))
@@ -512,6 +566,20 @@ function handleSessionUpdate(event: SessionUpdate): void {
       diffs: summary.diffs,
       status: toolStatus(update.status),
       coalesceKey: `tool:${sessionId}:${toolCallId}`
+    })
+    return
+  }
+
+  if (kind === 'goal_updated') {
+    const title = goalUpdateTitle(update)
+    emitActivity({
+      kind: 'goal',
+      sessionId,
+      ...bound,
+      title,
+      detail: goalUpdateDetail(update),
+      status: 'running',
+      coalesceKey: `goal:${bound.chatId ?? sessionId}`
     })
     return
   }

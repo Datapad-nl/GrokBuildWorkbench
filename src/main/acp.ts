@@ -85,6 +85,14 @@ export type SessionUpdate = {
     name?: string
     currentModeId?: string
     modeId?: string
+    message?: string
+    objective?: string
+    current_deliverable_title?: string
+    currentDeliverableTitle?: string
+    completed_deliverables?: number
+    completedDeliverables?: number
+    total_deliverables?: number
+    totalDeliverables?: number
   }
 }
 

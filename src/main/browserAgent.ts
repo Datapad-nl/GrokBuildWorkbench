@@ -22,7 +22,11 @@ export const BROWSER_SESSION_RULE = [
   'After a UI change, navigate to the local URL and call `get_state` to confirm the page loaded.',
   'When the user shares a YouTube URL or asks to transcribe, summarize, or quote a YouTube video, call `transcribe_youtube` with that URL.',
   'Do not scrape the watch page for captions unless that tool fails.',
-  'If you start a long-running dev server (`next dev`, vite, webpack) in a Grok Build Workbench worktree, stop it when the task is done. Do not leave it running in the background.'
+  'If you start a long-running dev server (`next dev`, vite, webpack) in a Grok Build Workbench worktree, stop it when the task is done. Do not leave it running in the background.',
+  'While a turn is running, keep the user posted in the reply itself.',
+  'Before a long stretch of tool work, and again whenever you have been working without a new sentence the user can read, write one short sentence that says what you are doing now.',
+  'A long task may be started with /goal. While a goal is active, call update_goal with one short status sentence at each milestone.',
+  'Do not mark the goal complete until the work is actually done, and do not go silent until the turn is finished.'
 ].join(' ')
 
 export type AcpMcpServer = {

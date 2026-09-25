@@ -58,7 +58,13 @@ export const SLASH_COMMANDS: SlashDef[] = [
   { id: 'remember', hint: 'Save a note to memory', kind: 'prompt', needsArgs: true, prompt: 'Remember this for later:' },
   { id: 'loop', hint: 'Run a prompt on an interval', kind: 'prompt', needsArgs: true, prompt:
       'Set up a recurring task with the scheduler. Interval and prompt:' },
-  { id: 'goal', hint: 'Set or manage an autonomous goal', kind: 'prompt', prompt: 'Manage this goal:' },
+  {
+    id: 'goal',
+    hint: 'Run a long task until it is done',
+    kind: 'prompt',
+    needsArgs: true,
+    prompt: '/goal'
+  },
   { id: 'deep-research', hint: 'Start a research workflow', kind: 'prompt', needsArgs: true, prompt:
       'Start a deep-research workflow:' },
   { id: 'workflow', hint: 'Launch or control a workflow', kind: 'prompt', needsArgs: true, prompt:

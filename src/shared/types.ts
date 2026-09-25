@@ -306,7 +306,7 @@ export function nextPermissionMode(mode: PermissionMode): PermissionMode {
   return 'ask'
 }
 
-export type ActivityKind = 'turn' | 'thought' | 'tool' | 'write' | 'plan' | 'permission' | 'error'
+export type ActivityKind = 'turn' | 'thought' | 'tool' | 'write' | 'plan' | 'goal' | 'permission' | 'error'
 
 export type ActivityStatus = 'running' | 'done' | 'error'
 

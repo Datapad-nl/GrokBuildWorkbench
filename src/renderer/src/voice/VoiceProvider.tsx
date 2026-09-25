@@ -9,6 +9,7 @@ import {
   type ReactNode
 } from 'react'
 import { DEFAULT_VOICE, type VoiceModelStatus, type VoiceSettings } from '../../../shared/types'
+import { shouldAnnounceProgress, useChatProgress } from '../progress'
 import { useStreams, useWorkspace } from '../workspace'
 import {
   englishSpeechText,
@@ -50,6 +51,9 @@ type VoiceContextValue = {
   toggleListen: () => void
   toggleConversation: () => void
   stopAll: () => void
+  speaks: boolean
+  replyMuted: boolean
+  muteReply: () => void
 }
 
 const VoiceContext = createContext<VoiceContextValue | null>(null)
@@ -66,6 +70,8 @@ const emptyModel: VoiceModelStatus = {
 export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.Element {
   const { settings, activeChatId, chatsById, sendMessage, saveSettings } = useWorkspace()
   const streams = useStreams()
+  const activeStreaming = Boolean(activeChatId && streams[activeChatId]?.status === 'streaming')
+  const progress = useChatProgress(activeChatId, activeStreaming)
   const voice: VoiceSettings = settings?.voice ?? DEFAULT_VOICE
   const [status, setStatus] = useState<VoiceUiStatus>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -76,6 +82,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   const [userTalking, setUserTalking] = useState(false)
   const [level, setLevel] = useState(0)
   const [bands, setBands] = useState<number[]>(() => [0, 0, 0, 0, 0, 0, 0])
+  const [replyMuted, setReplyMuted] = useState(false)
   const recorder = useRef<Recorder | null>(null)
   const liveRef = useRef(false)
   const levelFrame = useRef(0)
@@ -92,14 +99,44 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   const statusRef = useRef<VoiceUiStatus>('idle')
   const voiceRef = useRef(voice)
   const activeChatIdRef = useRef(activeChatId)
+  const streamsRef = useRef(streams)
+  const progressRef = useRef(progress)
+  const userTalkingRef = useRef(false)
+  const replyAt = useRef(0)
+  const announcedAt = useRef(0)
+  const announcedKey = useRef('')
+  const speakableLen = useRef(0)
+  const turnChat = useRef<string | null>(null)
 
   statusRef.current = status
   voiceRef.current = voice
   activeChatIdRef.current = activeChatId
+  streamsRef.current = streams
+  progressRef.current = progress
+  userTalkingRef.current = userTalking
 
   useEffect(() => {
     void window.grokcode.getVoiceModelStatus().then(setModel)
     return window.grokcode.onVoiceModelStatus(setModel)
+  }, [])
+
+  useEffect(() => {
+    setReplyMuted(activeChatId ? speechState(activeChatId).silenced : false)
+  }, [activeChatId])
+
+  const muteReply = useCallback(() => {
+    const chatId = activeChatIdRef.current
+    if (!chatId) return
+    const spoken = speechState(chatId)
+    spoken.silenced = !spoken.silenced
+    setReplyMuted(spoken.silenced)
+    if (!spoken.silenced) return
+    speakEpoch.current += 1
+    stopSpeaking()
+    if (statusRef.current === 'speaking') {
+      const stillWorking = streamsRef.current[chatId]?.status === 'streaming' || liveRef.current
+      setStatus(stillWorking ? 'waiting' : 'idle')
+    }
   }, [])
 
   useEffect(() => {
@@ -153,7 +190,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     if (!talking) setStatus('transcribing')
     try {
       const text = await transcribePcm(clip.samples, clip.sampleRate, clip.heardSpeech)
-      const spoken = activeChatIdRef.current ? speechState(activeChatIdRef.current).plain : ''
+      const spoken = activeChatIdRef.current ? heardText(activeChatIdRef.current) : progressSpokenText
       const bargeIn = looping && talking
       const leftover = leftoverSpeak(text, committedRef.current)
       committedRef.current = ''
@@ -200,7 +237,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     async (text: string) => {
       const chatId = activeChatIdRef.current
       if (!chatId || !text.trim() || isJunkTranscript(text)) return
-      const spoken = speechState(chatId).plain
+      const spoken = heardText(chatId)
       if (isSpeaking() && isLikelyEcho(text, spoken)) return
       setCaption('')
       setError(null)
@@ -390,16 +427,33 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
 
     const stream = streams[activeChatId]
     if (stream?.status === 'streaming') {
+      if (!spoken.hearing) {
+        spoken.hearing = true
+        if (spoken.silenced) {
+          spoken.silenced = false
+          setReplyMuted(false)
+        }
+      }
       if (stream.draft.length < spoken.draftLen) {
         spoken.plain = ''
         spoken.draftLen = 0
         spoken.ids.clear()
         spoken.muted = false
+        spoken.silenced = false
+        setReplyMuted(false)
         resetSpokenLog()
         speakEpoch.current += 1
         stopSpeaking()
       }
       spoken.draftLen = stream.draft.length
+      if (spoken.silenced) {
+        if (isSpeaking()) {
+          speakEpoch.current += 1
+          stopSpeaking()
+        }
+        if (statusRef.current === 'speaking') setStatus('waiting')
+        return
+      }
       const raw = speakableText(stream.draft)
       if (!spoken.plain && (spoken.muted || textLanguage(raw) === 'other')) {
         spoken.muted = true
@@ -425,6 +479,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       return
     }
 
+    spoken.hearing = false
     const chat = chatsById[activeChatId]
     const last = chat?.messages.at(-1)
     if (stream?.status === 'error') {
@@ -440,7 +495,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     spoken.ids.add(last.id)
     const raw = speakableText(last.content)
     const userText = latestUserText(chat?.messages)
-    const blocked = spoken.muted || (!spoken.plain && shouldMuteReply(userText, raw))
+    const blocked = spoken.silenced || spoken.muted || (!spoken.plain && shouldMuteReply(userText, raw))
     spoken.muted = false
     const full = blocked ? '' : englishSpeechText(raw, true)
     const prior = spoken.plain
@@ -471,6 +526,69 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
         }
       })
   }, [activeChatId, chatsById, startListen, streams, voice])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const chatId = activeChatIdRef.current
+      const voiceNow = voiceRef.current
+      const shouldSpeak = liveRef.current || (voiceNow.enabled && voiceNow.speakReplies)
+      if (!chatId || !shouldSpeak) return
+      const stream = streamsRef.current[chatId]
+      if (stream?.status !== 'streaming') {
+        turnChat.current = null
+        return
+      }
+      if (turnChat.current !== chatId) {
+        turnChat.current = chatId
+        replyAt.current = Date.now()
+        announcedAt.current = 0
+        announcedKey.current = ''
+        speakableLen.current = 0
+      }
+      const speakable = speakableText(stream.draft)
+      if (speakable.length > speakableLen.current) {
+        speakableLen.current = speakable.length
+        replyAt.current = Date.now()
+      }
+      if (speechState(chatId).muted || speechState(chatId).silenced) return
+      const cue = progressRef.current
+      const userBusy =
+        userTalkingRef.current ||
+        statusRef.current === 'listening' ||
+        statusRef.current === 'transcribing'
+      if (
+        !shouldAnnounceProgress({
+          now: Date.now(),
+          replyAt: replyAt.current,
+          announcedAt: announcedAt.current,
+          lastKey: announcedKey.current,
+          key: cue.key,
+          speaking: isSpeaking(),
+          userBusy
+        })
+      ) {
+        return
+      }
+      announcedAt.current = Date.now()
+      announcedKey.current = cue.key
+      progressSpokenText = `${progressSpokenText} ${cue.speech}`.trim().slice(-2000)
+      const epoch = speakEpoch.current
+      setStatus('speaking')
+      void speakText(cue.speech, voiceNow, { append: true, repeat: true })
+        .catch((err) => {
+          if (epoch !== speakEpoch.current) return
+          if (streamsRef.current[chatId]?.status !== 'streaming') return
+          setError(err instanceof Error ? err.message : 'Could not speak')
+          setStatus('error')
+        })
+        .finally(() => {
+          if (epoch !== speakEpoch.current) return
+          if (streamsRef.current[chatId]?.status !== 'streaming') return
+          if (statusRef.current === 'speaking' && !isSpeaking()) setStatus('waiting')
+        })
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   const wasEnabled = useRef(voice.enabled)
   useEffect(() => {
@@ -517,7 +635,10 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       consumeTranscript,
       toggleListen,
       toggleConversation,
-      stopAll
+      stopAll,
+      speaks: live || (voice.enabled && voice.speakReplies),
+      replyMuted,
+      muteReply
     }),
     [
       caption,
@@ -527,31 +648,46 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       level,
       live,
       model,
+      muteReply,
       pendingTranscript,
+      replyMuted,
       status,
       toggleConversation,
       toggleListen,
       stopAll,
       userTalking,
       voice.conversation,
-      voice.enabled
+      voice.enabled,
+      voice.speakReplies
     ]
   )
 
   return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>
 }
 
-type ChatSpeech = { plain: string; ids: Set<string>; draftLen: number; muted: boolean }
+type ChatSpeech = {
+  plain: string
+  ids: Set<string>
+  draftLen: number
+  muted: boolean
+  silenced: boolean
+  hearing: boolean
+}
 
 const speechByChat = new Map<string, ChatSpeech>()
+let progressSpokenText = ''
 
 function speechState(chatId: string): ChatSpeech {
   let state = speechByChat.get(chatId)
   if (!state) {
-    state = { plain: '', ids: new Set(), draftLen: 0, muted: false }
+    state = { plain: '', ids: new Set(), draftLen: 0, muted: false, silenced: false, hearing: false }
     speechByChat.set(chatId, state)
   }
   return state
+}
+
+function heardText(chatId: string): string {
+  return `${speechState(chatId).plain} ${progressSpokenText}`.trim()
 }
 
 function latestUserText(messages: { role: string; content: string }[] | undefined): string {
@@ -604,7 +740,10 @@ export function useVoice(): VoiceContextValue {
       consumeTranscript: () => undefined,
       toggleListen: () => undefined,
       toggleConversation: () => undefined,
-      stopAll: () => undefined
+      stopAll: () => undefined,
+      speaks: false,
+      replyMuted: false,
+      muteReply: () => undefined
     }
   }
   return value

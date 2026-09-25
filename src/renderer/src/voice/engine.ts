@@ -457,7 +457,7 @@ export function resetSpokenLog(): void {
 export async function speakText(
   text: string,
   settings: VoiceSettings,
-  opts?: { append?: boolean }
+  opts?: { append?: boolean; repeat?: boolean }
 ): Promise<void> {
   const spoken = englishSpeechText(speakableText(text), true)
   if (!opts?.append) {
@@ -468,7 +468,8 @@ export async function speakText(
   if (spoken) {
     for (const chunk of splitSpeakChunks(spoken)) {
       const key = normKey(chunk)
-      if (!key || playedKeys.has(key)) continue
+      if (!key) continue
+      if (!opts?.repeat && playedKeys.has(key)) continue
       if (speakQueue.some((job) => normKey(job.text) === key)) continue
       speakQueue.push({ text: chunk, settings })
     }

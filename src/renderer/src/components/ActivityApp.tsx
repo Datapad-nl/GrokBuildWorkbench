@@ -15,6 +15,7 @@ function kindLabel(event: ActivityEvent): string {
   if (event.kind === 'thought') return 'Thinking'
   if (event.kind === 'write') return 'Reply'
   if (event.kind === 'plan') return 'Plan'
+  if (event.kind === 'goal') return 'Goal'
   if (event.kind === 'permission') return 'Permission'
   if (event.kind === 'error') return 'Error'
   return 'Turn'

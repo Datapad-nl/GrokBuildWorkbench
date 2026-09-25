@@ -31,6 +31,7 @@ import {
   normalizeReasoningEffort,
   reasoningEffortLabel
 } from '../../../shared/types'
+import { useChatProgress } from '../progress'
 import { VoiceBlob } from '../voice/VoiceBlob'
 import { useVoice } from '../voice/VoiceProvider'
 import { useStreams, useWorkspace } from '../workspace'
@@ -229,6 +230,8 @@ export function ChatPane(): React.JSX.Element {
     (project) => project.id === (activeChat?.projectId ?? activeProjectId)
   )
   const stream = activeChatId ? streams[activeChatId] : undefined
+  const streamingNow = stream?.status === 'streaming'
+  const progress = useChatProgress(activeChat?.id ?? null, Boolean(streamingNow))
 
   return (
     <section className="flex min-w-[320px] flex-1 flex-col bg-canvas">
@@ -258,7 +261,9 @@ export function ChatPane(): React.JSX.Element {
             chatId={activeChat.id}
             projectId={activeChat.projectId}
             index={indexes[activeChat.projectId]}
-            draft={stream?.status === 'streaming' ? stream.draft : ''}
+            draft={streamingNow ? stream?.draft ?? '' : ''}
+            streaming={Boolean(streamingNow)}
+            progress={progress.label}
             error={stream?.error ?? null}
             plan={planStillOpen(activeChat.plan) ? (activeChat.plan ?? null) : null}
             checkpoints={activeChat.checkpoints ?? []}
@@ -272,7 +277,8 @@ export function ChatPane(): React.JSX.Element {
           <Composer
             key={activeChat.id}
             disabled={false}
-            streaming={stream?.status === 'streaming'}
+            streaming={Boolean(streamingNow)}
+            progress={streamingNow ? progress.label : ''}
             mode={normalizePermissionMode(activeChat.mode)}
             permission={permissions[activeChat.id] ?? null}
             question={questions[activeChat.id] ?? null}
@@ -487,6 +493,8 @@ function MessageList({
   projectId,
   index,
   draft,
+  streaming,
+  progress,
   error,
   plan,
   checkpoints,
@@ -499,6 +507,8 @@ function MessageList({
   projectId: string
   index: ProjectIndex | undefined
   draft: string
+  streaming: boolean
+  progress: string
   error: string | null
   plan: ChatPlan | null
   checkpoints: Checkpoint[]
@@ -509,12 +519,13 @@ function MessageList({
   const bottom = useRef<HTMLDivElement>(null)
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' })
-  }, [chat.messages, draft, plan])
+  }, [chat.messages, draft, plan, progress, streaming])
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-10 py-8">
       {chat.messages.length === 0 &&
       !draft &&
+      !streaming &&
       !(plan && (plan.entries.length > 0 || plan.awaitingApproval || plan.markdown?.trim())) ? (
         <div className="mx-auto max-w-[720px] pt-10">
           <ProjectOrientation projectId={projectId} index={index} />
@@ -589,13 +600,22 @@ function MessageList({
             </article>
             )
           })}
-          {draft && (
+          {(draft || streaming) && (
             <article>
               <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.14em] text-accent">
                 Grok
               </div>
-              <Markdown text={draft} chatId={chatId} />
-              <span className="cursor" />
+              {draft ? <Markdown text={draft} chatId={chatId} /> : null}
+              {streaming && (
+                <div
+                  data-testid="chat-progress"
+                  className={`flex items-start gap-2 ${draft ? 'mt-3' : ''}`}
+                >
+                  <span className="streaming-dot mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+                  <div className="text-[14px] leading-6 text-ink/80">{progress}</div>
+                </div>
+              )}
+              {draft ? <span className="cursor" /> : null}
             </article>
           )}
           {error && <div className="text-[13px] text-danger">{error}</div>}
@@ -1024,6 +1044,7 @@ function MentionChip({
 function Composer({
   disabled,
   streaming,
+  progress,
   mode,
   permission,
   question,
@@ -1041,6 +1062,7 @@ function Composer({
 }: {
   disabled: boolean
   streaming: boolean
+  progress: string
   mode: PermissionMode
   permission: PermissionRequest | null
   question: UserQuestionRequest | null
@@ -1084,7 +1106,10 @@ function Composer({
     caption: voiceCaption,
     consumeTranscript,
     toggleListen,
-    toggleConversation
+    toggleConversation,
+    speaks: voiceSpeaks,
+    replyMuted,
+    muteReply
   } = useVoice()
   const voiceMode =
     voiceStatus === 'listening' || (voiceLive && userTalking)
@@ -1324,11 +1349,12 @@ function Composer({
                   : voiceMode === 'grok'
                     ? 'Grok is talking'
                     : voiceMode === 'wait'
-                      ? voiceStatus === 'waiting'
-                        ? 'Thinking… then I’ll talk'
-                        : voiceStatus === 'loading'
+                      ? progress ||
+                        (voiceStatus === 'loading'
                           ? 'Starting conversation…'
-                          : 'Got it — working'
+                          : voiceStatus === 'waiting'
+                            ? 'Working…'
+                            : 'Got it — working')
                       : 'Listening…'}
             </div>
           </div>
@@ -1567,7 +1593,9 @@ function Composer({
           <div className="flex min-w-0 items-center gap-3">
             <ModeToggle mode={mode} onMode={onMode} />
             <div className="truncate font-mono text-[10px] text-muted">
-              {voiceError ??
+              {replyMuted
+                ? 'Muted for this request'
+                : voiceError ??
                 (voiceLive
                   ? voiceStatus === 'listening'
                     ? 'Conversation on · listening — pause to send, work starts now'
@@ -1577,7 +1605,7 @@ function Composer({
                         ? 'Conversation on · speaking — keep talking to steer'
                         : voiceStatus === 'loading'
                           ? 'Conversation on · starting…'
-                          : 'Conversation on · working in the background'
+                          : `Conversation on · ${progress || 'working'}`
                   : voiceStatus === 'listening'
                     ? 'Listening… click the mic or pause to send'
                     : voiceStatus === 'transcribing'
@@ -1588,11 +1616,24 @@ function Composer({
                           ? 'Loading local speech model…'
                           : (pasteError ??
                             (streaming
-                              ? 'Enter steers after this turn · Esc stops the task'
+                              ? `${progress || 'Still working'} · Esc stops the task`
                               : MODE_HINT[mode])))}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {voiceSpeaks && (streaming || voiceStatus === 'speaking' || replyMuted) && (
+              <button
+                type="button"
+                data-testid="voice-mute"
+                className={`rounded-md px-2.5 py-1.5 text-[12px] active:translate-y-px ${
+                  replyMuted ? 'bg-raised text-muted' : 'bg-raised text-ink hover:bg-line'
+                }`}
+                aria-label={replyMuted ? 'Unmute this reply' : 'Mute this reply'}
+                onClick={muteReply}
+              >
+                {replyMuted ? 'Muted' : 'Mute'}
+              </button>
+            )}
             {voiceOn && voiceConversation && (
             <button
               type="button"
