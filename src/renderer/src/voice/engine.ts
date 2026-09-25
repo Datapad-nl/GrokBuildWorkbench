@@ -256,8 +256,12 @@ function stripLeadingWords(text: string, count: number): string {
   return text.slice(end).replace(/^[\s,.;:!?…—-]+/u, '').trim()
 }
 
-/** Drop a spoken reply that only reads the user's request back, including a leading copy of it. */
-export function dropSpokenUserEcho(assistant: string, user: string): string {
+/**
+ * Skip speech that is only the user's request read back.
+ * A shorter answer is kept. While streaming, a still-growing copy of the request is held
+ * until the reply continues or the turn finishes.
+ */
+export function dropSpokenUserEcho(assistant: string, user: string, flush = false): string {
   const reply = assistant.trim()
   if (!reply) return ''
   const ask = speechWords(user)
@@ -266,9 +270,12 @@ export function dropSpokenUserEcho(assistant: string, user: string): string {
   if (said.length === 0) return reply
   const askJoined = ask.join(' ')
   const saidJoined = said.join(' ')
-  if (saidJoined === askJoined || askJoined.startsWith(saidJoined)) return ''
+  if (saidJoined === askJoined) return ''
+  if (!flush && askJoined.startsWith(saidJoined)) return ''
   if (!saidJoined.startsWith(askJoined)) return reply
-  return stripLeadingWords(reply, ask.length)
+  const rest = stripLeadingWords(reply, ask.length)
+  if (speechWords(rest).length < 4) return ''
+  return rest
 }
 
 /** True when a progress line is quoting the user's request. */

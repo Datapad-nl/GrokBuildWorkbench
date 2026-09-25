@@ -502,7 +502,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     if (spoken.ids.has(last.id)) return
     spoken.ids.add(last.id)
     const userText = latestUserText(chat?.messages)
-    const raw = dropSpokenUserEcho(speakableText(last.content), userText)
+    const raw = dropSpokenUserEcho(speakableText(last.content), userText, true)
     const blocked = spoken.silenced || spoken.muted || (!spoken.plain && shouldMuteReply(userText, raw))
     spoken.muted = false
     const full = blocked ? '' : englishSpeechText(raw, true)
@@ -717,7 +717,8 @@ function leftoverSpeak(full: string, consumed: string): string {
   if (!b) return a
   if (a.startsWith(b)) return a.slice(b.length).trim()
   if (a.toLowerCase().startsWith(b.toLowerCase())) return a.slice(b.length).trim()
-  return ''
+  if (b.toLowerCase().includes(a.toLowerCase())) return ''
+  return a
 }
 
 const SAMPLE_FLOOR = 1600
