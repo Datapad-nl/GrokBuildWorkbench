@@ -19,7 +19,23 @@ This repository is the source for a desktop Electron app. There is no packaged M
 
 Optional: copy `.env.example` to `.env` and set `XAI_API_KEY` if you want an API key instead of `grok login`.
 
-On macOS, `npm install` and `npm run dev` register a signed Electron shell at `~/Applications/Grok Build Workbench.app` (and try `/Applications`) so the microphone permission prompt uses this app’s name. That is not a standalone Workbench build — start the app with `npm run dev`. On Windows and Linux the register script exits without doing anything.
+Electron 44 does not download its binary during `npm install`. `npm install` and `npm run dev` run `node_modules/electron/install.js` first, which writes `path.txt` and downloads the binary for this platform. That step exits immediately when the binary is already present. On macOS the same script then registers a signed Electron shell at `~/Applications/Grok Build Workbench.app` (and tries `/Applications`) so the microphone permission prompt uses this app’s name. That is not a standalone Workbench build — start the app with `npm run dev`.
+
+If `npm run dev` still fails with `Electron uninstall`, the binary is missing. Download it, then start again.
+
+Windows (PowerShell):
+
+```powershell
+node node_modules\electron\install.js
+npm run dev
+```
+
+macOS / Linux:
+
+```sh
+node node_modules/electron/install.js
+npm run dev
+```
 
 Chats are real Grok Build sessions. Sessions already on disk for a folder show up in that project.
 

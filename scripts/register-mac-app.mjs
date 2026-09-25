@@ -14,6 +14,18 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+const require = createRequire(import.meta.url)
+const electronDir = dirname(require.resolve('electron/package.json'))
+
+// Electron 44+ has no npm postinstall. electron-vite reads path.txt itself and
+// throws "Electron uninstall" when install.js has never written it. install.js
+// exits immediately when the binary for this platform is already present.
+const electronInstall = join(electronDir, 'install.js')
+if (existsSync(electronInstall)) {
+  execFileSync(process.execPath, [electronInstall], { stdio: 'inherit' })
+}
+
 if (process.platform !== 'darwin') process.exit(0)
 
 const BUNDLE_ID = 'com.datapad.grokcode'
@@ -21,9 +33,6 @@ const APP_NAME = 'Grok Build Workbench'
 const MIC_USAGE =
   'Grok Build Workbench listens on this Mac so you can talk to Grok in conversation mode.'
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const require = createRequire(import.meta.url)
-const electronDir = dirname(require.resolve('electron/package.json'))
 const distDir = join(electronDir, 'dist')
 const distApp = join(distDir, 'Electron.app')
 const installedApp = join(homedir(), 'Applications', `${APP_NAME}.app`)
@@ -121,13 +130,6 @@ function signApp(appPath, identity) {
   bundles.sort((a, b) => b.length - a.length)
   for (const bundle of bundles) signTarget(identity, bundle, bundle.endsWith('.app'))
   signTarget(identity, appPath, true)
-}
-
-// Electron 44+ ships no postinstall; the binary is fetched by install.js on first use.
-// Run that before registration so Electron.app exists during npm's postinstall.
-const electronInstall = join(electronDir, 'install.js')
-if (!existsSync(join(distApp, 'Contents/Info.plist')) && existsSync(electronInstall)) {
-  execFileSync(process.execPath, [electronInstall], { stdio: 'inherit' })
 }
 
 const sourceApp = existsSync(distApp) && !lstatSync(distApp).isSymbolicLink() ? distApp : installedApp
