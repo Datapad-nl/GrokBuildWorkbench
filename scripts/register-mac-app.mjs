@@ -23,7 +23,8 @@ const MIC_USAGE =
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(import.meta.url)
-const distDir = join(dirname(require.resolve('electron/package.json')), 'dist')
+const electronDir = dirname(require.resolve('electron/package.json'))
+const distDir = join(electronDir, 'dist')
 const distApp = join(distDir, 'Electron.app')
 const installedApp = join(homedir(), 'Applications', `${APP_NAME}.app`)
 const entitlements = join(root, 'resources/mac/entitlements.mac.plist')
@@ -120,6 +121,13 @@ function signApp(appPath, identity) {
   bundles.sort((a, b) => b.length - a.length)
   for (const bundle of bundles) signTarget(identity, bundle, bundle.endsWith('.app'))
   signTarget(identity, appPath, true)
+}
+
+// Electron 44+ ships no postinstall; the binary is fetched by install.js on first use.
+// Run that before registration so Electron.app exists during npm's postinstall.
+const electronInstall = join(electronDir, 'install.js')
+if (!existsSync(join(distApp, 'Contents/Info.plist')) && existsSync(electronInstall)) {
+  execFileSync(process.execPath, [electronInstall], { stdio: 'inherit' })
 }
 
 const sourceApp = existsSync(distApp) && !lstatSync(distApp).isSymbolicLink() ? distApp : installedApp
