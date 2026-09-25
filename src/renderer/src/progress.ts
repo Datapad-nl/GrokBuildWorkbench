@@ -1,12 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { ActivityEvent } from '../../shared/types'
 
-/** Quiet stretch before the first spoken progress line of a turn. */
-export const PROGRESS_FIRST_MS = 8_000
-/** Shortest gap between two spoken progress lines. */
-export const PROGRESS_REPEAT_MS = 18_000
-/** After the step changes, wait this long before speaking the new one. */
-export const PROGRESS_STEP_MS = 6_000
+/** Quiet stretch before the first "still on it" cue. */
+export const PROGRESS_FIRST_MS = 60_000
+/** At most one spoken progress line per minute. */
+export const PROGRESS_REPEAT_MS = 60_000
 
 export type ProgressNow = {
   label: string
@@ -14,9 +12,11 @@ export type ProgressNow = {
   key: string
 }
 
+export const STILL_ON_IT_SPEECH = 'I am still working on your request.'
+
 const IDLE: ProgressNow = {
   label: 'Still working',
-  speech: 'I am still working on your request.',
+  speech: STILL_ON_IT_SPEECH,
   key: 'idle'
 }
 
@@ -50,7 +50,7 @@ export function progressNow(event: ActivityEvent | null): ProgressNow {
     const label = clip(event.title?.trim() || 'Working on the goal', 160)
     return {
       label,
-      speech: `I am still working. ${label}.`,
+      speech: label,
       key: `goal:${label}`
     }
   }
@@ -86,6 +86,10 @@ export function progressNow(event: ActivityEvent | null): ProgressNow {
   }
 }
 
+function isStatusFiller(key: string): boolean {
+  return key === 'idle' || key === 'thought'
+}
+
 export function shouldAnnounceProgress(input: {
   now: number
   replyAt: number
@@ -94,21 +98,19 @@ export function shouldAnnounceProgress(input: {
   key: string
   speaking: boolean
   userBusy: boolean
+  /** Cue text is the user's own request, so it waits with the other fillers. */
+  echoesUser?: boolean
 }): boolean {
   if (input.speaking || input.userBusy) return false
   const sinceReply = input.now - input.replyAt
   const sinceAnnounce = input.now - input.announcedAt
-  if (
-    (input.key.startsWith('permission:') ||
-      input.key.startsWith('error:') ||
-      input.key.startsWith('goal:')) &&
+  if (input.announcedAt !== 0 && sinceAnnounce < PROGRESS_REPEAT_MS) return false
+  const urgent =
+    !input.echoesUser &&
+    !isStatusFiller(input.key) &&
+    (input.key.startsWith('permission:') || input.key.startsWith('error:')) &&
     input.key !== input.lastKey
-  ) {
-    return true
-  }
-  if (input.key !== input.lastKey && sinceReply >= PROGRESS_STEP_MS && sinceAnnounce >= PROGRESS_STEP_MS) {
-    return true
-  }
+  if (urgent) return true
   if (sinceReply >= PROGRESS_FIRST_MS && sinceAnnounce >= PROGRESS_REPEAT_MS) return true
   return false
 }

@@ -9,9 +9,11 @@ import {
   type ReactNode
 } from 'react'
 import { DEFAULT_VOICE, type VoiceModelStatus, type VoiceSettings } from '../../../shared/types'
-import { shouldAnnounceProgress, useChatProgress } from '../progress'
+import { shouldAnnounceProgress, STILL_ON_IT_SPEECH, useChatProgress } from '../progress'
 import { useStreams, useWorkspace } from '../workspace'
 import {
+  dropSpokenUserEcho,
+  echoesUserRequest,
   englishSpeechText,
   isSpeaking,
   openLiveMicStream,
@@ -100,6 +102,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   const voiceRef = useRef(voice)
   const activeChatIdRef = useRef(activeChatId)
   const streamsRef = useRef(streams)
+  const chatsByIdRef = useRef(chatsById)
   const progressRef = useRef(progress)
   const userTalkingRef = useRef(false)
   const replyAt = useRef(0)
@@ -112,6 +115,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   voiceRef.current = voice
   activeChatIdRef.current = activeChatId
   streamsRef.current = streams
+  chatsByIdRef.current = chatsById
   progressRef.current = progress
   userTalkingRef.current = userTalking
 
@@ -454,7 +458,11 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
         if (statusRef.current === 'speaking') setStatus('waiting')
         return
       }
-      const raw = speakableText(stream.draft)
+      const raw = dropSpokenUserEcho(
+        speakableText(stream.draft),
+        latestUserText(chatsById[activeChatId]?.messages)
+      )
+      if (!raw) return
       if (!spoken.plain && (spoken.muted || textLanguage(raw) === 'other')) {
         spoken.muted = true
         if (isSpeaking()) {
@@ -493,8 +501,8 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     if (!last || last.role !== 'assistant') return
     if (spoken.ids.has(last.id)) return
     spoken.ids.add(last.id)
-    const raw = speakableText(last.content)
     const userText = latestUserText(chat?.messages)
+    const raw = dropSpokenUserEcho(speakableText(last.content), userText)
     const blocked = spoken.silenced || spoken.muted || (!spoken.plain && shouldMuteReply(userText, raw))
     spoken.muted = false
     const full = blocked ? '' : englishSpeechText(raw, true)
@@ -552,6 +560,8 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       }
       if (speechState(chatId).muted || speechState(chatId).silenced) return
       const cue = progressRef.current
+      const userText = latestUserText(chatsByIdRef.current[chatId]?.messages)
+      const echoesUser = echoesUserRequest(cue.speech, userText) || echoesUserRequest(cue.label, userText)
       const userBusy =
         userTalkingRef.current ||
         statusRef.current === 'listening' ||
@@ -564,17 +574,19 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
           lastKey: announcedKey.current,
           key: cue.key,
           speaking: isSpeaking(),
-          userBusy
+          userBusy,
+          echoesUser
         })
       ) {
         return
       }
+      const speech = echoesUser ? STILL_ON_IT_SPEECH : cue.speech
       announcedAt.current = Date.now()
       announcedKey.current = cue.key
-      progressSpokenText = `${progressSpokenText} ${cue.speech}`.trim().slice(-2000)
+      progressSpokenText = `${progressSpokenText} ${speech}`.trim().slice(-2000)
       const epoch = speakEpoch.current
       setStatus('speaking')
-      void speakText(cue.speech, voiceNow, { append: true, repeat: true })
+      void speakText(speech, voiceNow, { append: true, repeat: true })
         .catch((err) => {
           if (epoch !== speakEpoch.current) return
           if (streamsRef.current[chatId]?.status !== 'streaming') return

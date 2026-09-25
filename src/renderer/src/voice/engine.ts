@@ -228,6 +228,59 @@ export function shouldMuteReply(userText: string, assistantText: string): boolea
   return textLanguage(userText) === 'other'
 }
 
+function containsWordSequence(haystack: string[], needle: string[]): boolean {
+  if (needle.length === 0 || haystack.length < needle.length) return false
+  const limit = haystack.length - needle.length
+  for (let i = 0; i <= limit; i++) {
+    let same = true
+    for (let j = 0; j < needle.length; j++) {
+      if (haystack[i + j] !== needle[j]) {
+        same = false
+        break
+      }
+    }
+    if (same) return true
+  }
+  return false
+}
+
+function stripLeadingWords(text: string, count: number): string {
+  const re = /\p{L}+(?:['’]\p{L}+)?/gu
+  let skipped = 0
+  let end = 0
+  for (const match of text.matchAll(re)) {
+    skipped += 1
+    end = (match.index ?? 0) + match[0].length
+    if (skipped >= count) break
+  }
+  return text.slice(end).replace(/^[\s,.;:!?…—-]+/u, '').trim()
+}
+
+/** Drop a spoken reply that only reads the user's request back, including a leading copy of it. */
+export function dropSpokenUserEcho(assistant: string, user: string): string {
+  const reply = assistant.trim()
+  if (!reply) return ''
+  const ask = speechWords(user)
+  if (ask.length < 6) return reply
+  const said = speechWords(reply)
+  if (said.length === 0) return reply
+  const askJoined = ask.join(' ')
+  const saidJoined = said.join(' ')
+  if (saidJoined === askJoined || askJoined.startsWith(saidJoined)) return ''
+  if (!saidJoined.startsWith(askJoined)) return reply
+  return stripLeadingWords(reply, ask.length)
+}
+
+/** True when a progress line is quoting the user's request. */
+export function echoesUserRequest(spoken: string, user: string): boolean {
+  const ask = speechWords(user)
+  if (ask.length < 6) return false
+  const said = speechWords(spoken)
+  if (containsWordSequence(said, ask)) return true
+  const head = ask.slice(0, 12)
+  return head.length >= 6 && head.length < ask.length && containsWordSequence(said, head)
+}
+
 function sentenceEnded(part: string): boolean {
   return /[.!?](?:["')\]]+)?$/.test(part.trim())
 }
