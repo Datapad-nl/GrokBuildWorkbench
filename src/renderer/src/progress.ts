@@ -42,7 +42,7 @@ export function progressNow(event: ActivityEvent | null): ProgressNow {
     const bit = clip(event.detail ?? '', 140)
     return {
       label: bit ? `Thinking. ${bit}` : 'Thinking',
-      speech: 'I am still thinking this through.',
+      speech: STILL_ON_IT_SPEECH,
       key: 'thought'
     }
   }
@@ -50,14 +50,14 @@ export function progressNow(event: ActivityEvent | null): ProgressNow {
     const label = clip(event.title?.trim() || 'Working on the goal', 160)
     return {
       label,
-      speech: label,
+      speech: STILL_ON_IT_SPEECH,
       key: `goal:${label}`
     }
   }
   if (event.kind === 'write') {
     return {
       label: 'Writing the reply',
-      speech: 'I am writing the reply now.',
+      speech: STILL_ON_IT_SPEECH,
       key: 'write'
     }
   }
@@ -78,10 +78,9 @@ export function progressNow(event: ActivityEvent | null): ProgressNow {
     }
   }
   const title = clip(event.title?.trim() || 'Still working', 160)
-  const idle = title.toLowerCase() === 'still working'
   return {
     label: title,
-    speech: idle ? IDLE.speech : `I am still working. ${title}.`,
+    speech: STILL_ON_IT_SPEECH,
     key: `${event.coalesceKey ?? event.id}:${title}`
   }
 }
