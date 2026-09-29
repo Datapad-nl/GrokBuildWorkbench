@@ -66,7 +66,7 @@ type PendingExit = {
 type Pending = {
   resolve: (value: unknown) => void
   reject: (error: Error) => void
-  timer: NodeJS.Timeout
+  timer: NodeJS.Timeout | null
 }
 
 export type SessionUpdate = {
@@ -191,10 +191,16 @@ function send(payload: object): void {
 function request<T>(method: string, params: unknown, timeoutMs: number): Promise<T> {
   const id = nextId++
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      pending.delete(id)
-      reject(new Error(`${method} timed out`))
-    }, timeoutMs)
+    // timeoutMs <= 0 waits until the agent answers or the process exits.
+    // A deadline that fires first deletes the waiter while the turn is still
+    // running, so the next message has nothing to attach to.
+    const timer =
+      timeoutMs > 0
+        ? setTimeout(() => {
+            pending.delete(id)
+            reject(new Error(`${method} timed out`))
+          }, timeoutMs)
+        : null
     pending.set(id, {
       resolve: (value) => resolve(value as T),
       reject,
@@ -478,7 +484,7 @@ function handleMessage(message: JsonRpc): void {
     }
     return
   }
-  clearTimeout(waiter.timer)
+  if (waiter.timer) clearTimeout(waiter.timer)
   pending.delete(message.id)
   if (message.error) {
     waiter.reject(new Error(message.error.message || JSON.stringify(message.error)))
@@ -542,7 +548,7 @@ function attachProcess(child: ChildProcessWithoutNullStreams): void {
     inbound.length = 0
     flushScheduled = false
     for (const waiter of pending.values()) {
-      clearTimeout(waiter.timer)
+      if (waiter.timer) clearTimeout(waiter.timer)
       waiter.reject(new Error('Grok Build exited'))
     }
     pending.clear()
@@ -739,7 +745,7 @@ export async function promptSession(
       sessionId,
       prompt
     },
-    15 * 60_000
+    0
   )
   await waitForTurnEnd(sessionId)
 }
@@ -752,7 +758,7 @@ export function cancelSession(sessionId: string): void {
 export function abortMainAgent(): void {
   if (!proc) return
   for (const waiter of pending.values()) {
-    clearTimeout(waiter.timer)
+    if (waiter.timer) clearTimeout(waiter.timer)
     waiter.reject(new Error('cancelled'))
   }
   pending.clear()
@@ -806,10 +812,13 @@ export async function promptIsolated(
   const call = <T,>(method: string, params: unknown, timeoutMs: number): Promise<T> => {
     const id = next++
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        waiters.delete(id)
-        reject(new Error(`${method} timed out`))
-      }, timeoutMs)
+      const timer =
+        timeoutMs > 0
+          ? setTimeout(() => {
+              waiters.delete(id)
+              reject(new Error(`${method} timed out`))
+            }, timeoutMs)
+          : null
       waiters.set(id, {
         resolve: (value) => resolve(value as T),
         reject,
@@ -879,7 +888,7 @@ export async function promptIsolated(
     if (message.id === undefined || typeof message.id !== 'number') return
     const waiter = waiters.get(message.id)
     if (!waiter) return
-    clearTimeout(waiter.timer)
+    if (waiter.timer) clearTimeout(waiter.timer)
     waiters.delete(message.id)
     if (message.error) {
       waiter.reject(new Error(message.error.message || JSON.stringify(message.error)))
@@ -894,7 +903,7 @@ export async function promptIsolated(
 
   const stop = (): void => {
     for (const waiter of waiters.values()) {
-      clearTimeout(waiter.timer)
+      if (waiter.timer) clearTimeout(waiter.timer)
       waiter.reject(new Error('cancelled'))
     }
     waiters.clear()
@@ -946,7 +955,7 @@ export async function promptIsolated(
     for (const image of images) {
       prompt.push({ type: 'image', mimeType: image.mimeType, data: image.data })
     }
-    await call('session/prompt', { sessionId: created.sessionId, prompt }, options?.timeoutMs ?? 15 * 60_000)
+    await call('session/prompt', { sessionId: created.sessionId, prompt }, options?.timeoutMs ?? 0)
     return assembled.trim()
   } finally {
     signal?.removeEventListener('abort', onAbort)

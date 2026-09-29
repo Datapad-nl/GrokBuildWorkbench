@@ -33,6 +33,7 @@ How **Grok Build Workbench** is laid out. Areas below are wiki-linked so the gra
 - `SECURITY.md`
 - `tsconfig.json`
 - `tsconfig.node.json`
+- `tsconfig.node.tsbuildinfo`
 - `tsconfig.web.json`
 - `tsconfig.web.tsbuildinfo`
 
@@ -41,6 +42,8 @@ How **Grok Build Workbench** is laid out. Areas below are wiki-linked so the gra
 ```
 [1m
 [0m
+├── scripts
+│   └── register-mac-app.mjs
 ├── src
 │   ├── main
 │   ├── preload

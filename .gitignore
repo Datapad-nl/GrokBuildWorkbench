@@ -10,5 +10,6 @@ resources/icon.iconset
 .env.*
 !.env.example
 .codegraph/
+.grok/
 scripts/electron-ls-dist/
 design-studies/

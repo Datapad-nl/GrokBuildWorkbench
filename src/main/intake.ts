@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { mkdir, readFile, writeFile } from 'fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'fs/promises'
 import { homedir } from 'os'
 import { join } from 'path'
 import type {
@@ -122,6 +122,12 @@ function briefLines(intake: ProjectIntake, project: Project): string[] {
 
 export function formatProjectSessionRules(intake: ProjectIntake | null, project: Project): string | null {
   if (!intake || intake.status !== 'completed' || intake.rounds.length === 0) return null
+  if (briefingPath(project)) {
+    return [
+      'This project already has a briefing in .grok/rules/briefing.md.',
+      'Follow that file. "From the repo" facts were derived from the codebase. "From you" answers are intent the code cannot show.'
+    ].join(' ')
+  }
   return [
     `This Grok Build Workbench project already has a briefing.`,
     `"From the repo" facts were derived from the codebase — match that stack unless the user asks to change it.`,
@@ -146,19 +152,9 @@ function memoryBlock(project: Project, intake: ProjectIntake): string {
   return `${start}\n${body}\n${end}`
 }
 
-function upsertMemoryBlock(markdown: string, projectId: string, block: string): string {
-  const start = `<!-- grokcode-project ${projectId} -->`
-  const end = `<!-- /grokcode-project ${projectId} -->`
-  const escapedStart = start.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const escapedEnd = end.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const pattern = new RegExp(`${escapedStart}[\\s\\S]*?${escapedEnd}`)
-  if (pattern.test(markdown)) return markdown.replace(pattern, block)
-  const trimmed = markdown.trim()
-  if (!trimmed) return `# Memory\n\n## Grok Build Workbench projects\n\n${block}\n`
-  if (!/^## (Grok Build Workbench|GrokCode) projects$/m.test(trimmed)) {
-    return `${trimmed}\n\n## Grok Build Workbench projects\n\n${block}\n`
-  }
-  return `${trimmed}\n\n${block}\n`
+function briefingPath(project: Project): string | null {
+  if (!project.path || project.path === '/tmp') return null
+  return join(project.path, '.grok', 'rules', 'briefing.md')
 }
 
 function stripMemoryBlock(markdown: string, projectId: string): string {
@@ -167,17 +163,12 @@ function stripMemoryBlock(markdown: string, projectId: string): string {
   const escapedStart = start.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const escapedEnd = end.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const pattern = new RegExp(`\\n*${escapedStart}[\\s\\S]*?${escapedEnd}\\n*`)
-  return markdown.replace(pattern, '\n\n').trim() + (markdown.trim() ? '\n' : '')
+  const stripped = markdown.replace(pattern, '\n\n')
+  const withoutEmpty = stripped.replace(/\n*## (Grok Build Workbench|GrokCode) projects\s*(?=\n#|\n*$)/, '\n')
+  return withoutEmpty.trim() + (stripped.trim() ? '\n' : '')
 }
 
-async function writeGrokMemory(project: Project, intake: ProjectIntake): Promise<void> {
-  const path = memoryPath()
-  await mkdir(join(path, '..'), { recursive: true })
-  const current = await readFile(path, 'utf8').catch(() => '# Memory\n')
-  await writeFile(path, upsertMemoryBlock(current, project.id, memoryBlock(project, intake)), 'utf8')
-}
-
-async function removeMemorySection(projectId: string): Promise<void> {
+async function stripLegacyMemory(projectId: string): Promise<void> {
   const path = memoryPath()
   let current: string
   try {
@@ -186,6 +177,23 @@ async function removeMemorySection(projectId: string): Promise<void> {
     return
   }
   await writeFile(path, stripMemoryBlock(current, projectId), 'utf8')
+}
+
+async function writeGrokMemory(project: Project, intake: ProjectIntake): Promise<void> {
+  await stripLegacyMemory(project.id)
+  const path = briefingPath(project)
+  if (!path) return
+  await mkdir(join(path, '..'), { recursive: true })
+  await writeFile(path, `${memoryBlock(project, intake)}\n`, 'utf8')
+}
+
+async function removeMemorySection(projectId: string): Promise<void> {
+  await stripLegacyMemory(projectId)
+  const projects = await listProjects()
+  const project = projects.find((item) => item.id === projectId)
+  const path = project ? briefingPath(project) : null
+  if (!path) return
+  await rm(path, { force: true })
 }
 
 async function persistIntake(project: Project, intake: ProjectIntake): Promise<void> {

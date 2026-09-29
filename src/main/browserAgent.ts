@@ -25,6 +25,7 @@ export const BROWSER_SESSION_RULE = [
   'If you start a long-running dev server (`next dev`, vite, webpack) in a Grok Build Workbench worktree, stop it when the task is done. Do not leave it running in the background.',
   'While a turn is running, keep the user posted in the reply itself.',
   'Before a long stretch of tool work, and again whenever you have been working without a new sentence the user can read, write one short sentence that says what you are doing now.',
+  'For a long command, do not hide its output: if you also save a file, pipe through tee so each line still reaches the tool log. Print a progress line as the work advances, and flush it. Do not wait on one background task for the whole run; check its latest line and tell the user what it says.',
   'A long task may be started with /goal. While a goal is active, call update_goal with one short status sentence at each milestone.',
   'Do not mark the goal complete until the work is actually done, and do not go silent until the turn is finished.'
 ].join(' ')

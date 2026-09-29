@@ -8,6 +8,7 @@ import type {
 } from '../shared/types'
 import { contentText, onSessionUpdate, type SessionUpdate } from './acp'
 import { id, now } from './ids'
+import { latestTaskLine } from './taskProgress'
 
 const MAX_EVENTS = 400
 
@@ -20,6 +21,134 @@ let started = false
 const events: ActivityEvent[] = []
 const sessions = new Map<string, BoundChat>()
 const listeners = new Set<(feed: ActivityFeed) => void>()
+
+/** How long a running turn can sit without a new event before we say so. */
+const QUIET_MS = 60_000
+const quietTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const taskPolls = new Map<string, ReturnType<typeof setInterval>>()
+const taskSeen = new Map<string, string>()
+const turnStartedAt = new Map<string, number>()
+const TASK_POLL_MS = 2_000
+
+function heartbeatKey(chatId: string): string {
+  return `heartbeat:${chatId}`
+}
+
+function clearQuiet(chatId: string): void {
+  const timer = quietTimers.get(chatId)
+  if (timer) clearTimeout(timer)
+  quietTimers.delete(chatId)
+}
+
+function stillWorkingLabel(chatId: string): string {
+  const elapsed = Date.now() - (turnStartedAt.get(chatId) ?? Date.now())
+  const mins = Math.max(1, Math.floor(elapsed / 60_000))
+  return mins === 1 ? 'Still working · 1 min in' : `Still working · ${mins} min in`
+}
+
+function taskHints(chatId: string): string {
+  const bits: string[] = []
+  for (let i = events.length - 1; i >= 0 && bits.length < 8; i--) {
+    const event = events[i]
+    if (event.chatId !== chatId || event.kind !== 'tool') continue
+    if (event.coalesceKey?.startsWith('taskfeed:')) continue
+    if (event.detail) bits.push(event.detail)
+    if (event.title) bits.push(event.title)
+  }
+  return bits.join('\n')
+}
+
+function taskLine(chatId: string, sessionId: string | null): string | null {
+  const since = (turnStartedAt.get(chatId) ?? Date.now()) - 2_000
+  return latestTaskLine(sessionId, taskHints(chatId), since)
+}
+
+function clipLine(text: string, max = 160): string {
+  const one = text.replace(/\s+/g, ' ').trim()
+  if (one.length <= max) return one
+  return `${one.slice(0, max - 1).trim()}…`
+}
+
+function publishTaskLine(chatId: string, line: string): void {
+  const turn = events.find((event) => event.coalesceKey === `turn:${chatId}`)
+  if (!turn || turn.status !== 'running') return
+  const label = clipLine(line)
+  emitActivity({
+    kind: 'tool',
+    chatId,
+    chatTitle: turn.chatTitle,
+    sessionId: turn.sessionId,
+    title: label,
+    detail: line.slice(0, 2_000),
+    toolKind: 'progress',
+    status: 'running',
+    coalesceKey: `taskfeed:${chatId}`
+  })
+}
+
+function pollTask(chatId: string): void {
+  const turn = events.find((event) => event.coalesceKey === `turn:${chatId}`)
+  if (!turn || turn.status !== 'running') {
+    stopTaskPoll(chatId)
+    return
+  }
+  const line = taskLine(chatId, turn.sessionId)
+  if (!line) return
+  const seen = taskSeen.get(chatId)
+  if (line === seen) return
+  taskSeen.set(chatId, line)
+  publishTaskLine(chatId, line)
+}
+
+function stopTaskPoll(chatId: string): void {
+  const timer = taskPolls.get(chatId)
+  if (timer) clearInterval(timer)
+  taskPolls.delete(chatId)
+  taskSeen.delete(chatId)
+}
+
+function startTaskPoll(chatId: string): void {
+  stopTaskPoll(chatId)
+  pollTask(chatId)
+  taskPolls.set(
+    chatId,
+    setInterval(() => pollTask(chatId), TASK_POLL_MS)
+  )
+}
+
+function pulseQuiet(chatId: string): void {
+  quietTimers.delete(chatId)
+  const turn = events.find((event) => event.coalesceKey === `turn:${chatId}`)
+  if (!turn || turn.status !== 'running') return
+  const line = taskLine(chatId, turn.sessionId)
+  const label = line ? `${stillWorkingLabel(chatId)} · ${clipLine(line, 100)}` : stillWorkingLabel(chatId)
+  emitActivity({
+    kind: 'thought',
+    chatId,
+    chatTitle: turn.chatTitle,
+    sessionId: turn.sessionId,
+    title: label,
+    detail: label,
+    status: 'running',
+    coalesceKey: heartbeatKey(chatId)
+  })
+  armQuiet(chatId)
+}
+
+function armQuiet(chatId: string): void {
+  clearQuiet(chatId)
+  quietTimers.set(
+    chatId,
+    setTimeout(() => pulseQuiet(chatId), QUIET_MS)
+  )
+}
+
+function noteSignal(chatId: string | null, coalesceKey?: string): void {
+  if (!chatId || coalesceKey === heartbeatKey(chatId)) return
+  const turn = events.find((event) => event.coalesceKey === `turn:${chatId}`)
+  if (!turn || turn.status !== 'running') return
+  armQuiet(chatId)
+}
 
 export function bindSession(sessionId: string, chat: BoundChat): void {
   sessions.set(sessionId, chat)
@@ -100,7 +229,10 @@ function emitActivity(
         ...previous,
         ...incoming,
         id: previous.id,
-        at: previous.at,
+        at:
+          incoming.coalesceKey?.startsWith('heartbeat:') || incoming.coalesceKey?.startsWith('taskfeed:')
+            ? incoming.at
+            : previous.at,
         title: preferTitle(incoming.title, previous.title),
         toolKind: incoming.toolKind || previous.toolKind,
         status: incoming.status ?? previous.status,
@@ -110,6 +242,7 @@ function emitActivity(
       }
       events[index] = merged
       publish(merged)
+      noteSignal(merged.chatId, merged.coalesceKey)
       return merged
     }
   }
@@ -117,6 +250,7 @@ function emitActivity(
   events.push(incoming)
   if (events.length > MAX_EVENTS) events.shift()
   publish(incoming)
+  noteSignal(incoming.chatId, incoming.coalesceKey)
   return incoming
 }
 
@@ -169,6 +303,7 @@ export function startTurn(input: {
   prompt: string
 }): void {
   bindSession(input.sessionId, { id: input.chatId, title: input.chatTitle })
+  turnStartedAt.set(input.chatId, Date.now())
   emitActivity({
     kind: 'turn',
     chatId: input.chatId,
@@ -179,6 +314,7 @@ export function startTurn(input: {
     status: 'running',
     coalesceKey: `turn:${input.chatId}`
   })
+  startTaskPoll(input.chatId)
 }
 
 export function emitPermissionActivity(input: {
@@ -203,6 +339,9 @@ export function emitPermissionActivity(input: {
 }
 
 export function finishTurn(chatId: string, status: Exclude<ActivityStatus, 'running'>, error?: string): void {
+  clearQuiet(chatId)
+  stopTaskPoll(chatId)
+  turnStartedAt.delete(chatId)
   const current = events.find((event) => event.coalesceKey === `turn:${chatId}`)
   emitActivity({
     kind: 'turn',
@@ -230,6 +369,9 @@ export function getActivitySnapshot(): ActivitySnapshot {
 
 export function clearActivity(): ActivitySnapshot {
   flushBroadcasts()
+  for (const chatId of quietTimers.keys()) clearQuiet(chatId)
+  for (const chatId of [...taskPolls.keys()]) stopTaskPoll(chatId)
+  turnStartedAt.clear()
   events.length = 0
   broadcast({ type: 'reset', events: [] })
   return getActivitySnapshot()
@@ -302,6 +444,9 @@ function preferTitle(incoming: string, previous: string): string {
 }
 
 function mergeDetail(previous: ActivityEvent, incoming: ActivityEvent): string | null {
+  if (incoming.coalesceKey?.startsWith('heartbeat:') || incoming.coalesceKey?.startsWith('taskfeed:')) {
+    return incoming.detail ?? previous.detail
+  }
   if (incoming.kind === 'thought' && incoming.id !== previous.id) {
     return joinText(previous.detail, incoming.detail)
   }

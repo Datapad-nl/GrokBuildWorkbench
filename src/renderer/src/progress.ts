@@ -40,6 +40,13 @@ export function progressNow(event: ActivityEvent | null): ProgressNow {
   if (!event) return IDLE
   if (event.kind === 'thought') {
     const bit = clip(event.detail ?? '', 140)
+    if (bit.startsWith('Still working')) {
+      return {
+        label: bit,
+        speech: STILL_ON_IT_SPEECH,
+        key: `idle:${bit}`
+      }
+    }
     return {
       label: bit ? `Thinking. ${bit}` : 'Thinking',
       speech: STILL_ON_IT_SPEECH,
